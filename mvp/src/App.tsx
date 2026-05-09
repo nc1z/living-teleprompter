@@ -15,9 +15,10 @@ import { clientConfig } from './teleprompter/config'
 import { phaseZeroFixture } from './teleprompter/fixtures'
 import type { GeneratedParagraph, StreamChunk, StreamSource, VisualCue } from './teleprompter/types'
 
-type PlanningState = 'idle' | 'generating' | 'ready' | 'failed'
+type PlanningState = 'idle' | 'generating' | 'ready' | 'reading' | 'consumed' | 'failed'
 type ConnectionState = 'idle' | 'connecting' | 'listening' | 'error'
 type DisplayTone = 'green' | 'blue' | 'red' | 'gold'
+type ScriptFeedback = 'idle' | 'matched' | 'diverged'
 
 type TimingEntry = {
   id: number
@@ -134,8 +135,49 @@ function normalizeDisplayWord(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '')
 }
 
+function meaningfulWords(value: string) {
+  return normalizeSpaces(value)
+    .split(' ')
+    .map(normalizeDisplayWord)
+    .filter((word) => word.length > 2 && !stopWords.has(word))
+}
+
 function normalizeSpaces(value: string) {
   return value.replace(/\s+/g, ' ').trim()
+}
+
+function lastMeaningfulWords(value: string, count: number) {
+  return meaningfulWords(value).slice(-count)
+}
+
+function hasLastTwoWordMatch(spoken: string, script: string) {
+  const target = lastMeaningfulWords(script, 2)
+  const spokenWords = meaningfulWords(spoken)
+
+  if (target.length < 2 || spokenWords.length < 2) return false
+
+  const spokenTail = spokenWords.slice(-2)
+
+  return target.every((word, index) => word === spokenTail[index])
+}
+
+function spokenScriptOverlap(spoken: string, script: string) {
+  const spokenWords = meaningfulWords(spoken)
+  const scriptWords = new Set(meaningfulWords(script))
+
+  if (!spokenWords.length || !scriptWords.size) return 0
+
+  const overlapCount = spokenWords.filter((word) => scriptWords.has(word)).length
+
+  return overlapCount / spokenWords.length
+}
+
+function isLikelyTopicChange(spoken: string, script: string) {
+  const spokenWords = meaningfulWords(spoken)
+
+  if (spokenWords.length < 4) return false
+
+  return spokenScriptOverlap(spoken, script) < 0.18
 }
 
 function isProbablyEnglish(value: string) {
@@ -274,6 +316,7 @@ function App() {
   const [planningDraft, setPlanningDraft] = useState('')
   const [generatedParagraph, setGeneratedParagraph] =
     useState<GeneratedParagraph | null>(null)
+  const [scriptFeedback, setScriptFeedback] = useState<ScriptFeedback>('idle')
   const [timings, setTimings] = useState<TimingEntry[]>([])
   const [lastError, setLastError] = useState('')
   const [overlayVisible, setOverlayVisible] = useState(true)
@@ -296,9 +339,14 @@ function App() {
   const timingIdRef = useRef(0)
   const planningRequestIdRef = useRef(0)
   const hasGeneratedRef = useRef(false)
+  const generatedParagraphRef = useRef<GeneratedParagraph | null>(null)
+  const acceptedScriptsRef = useRef<string[]>([])
+  const skippedScriptsRef = useRef<string[]>([])
   const planningStateRef = useRef<PlanningState>('idle')
   const presentationBriefRef = useRef(presentationBrief)
   const streamPausedRef = useRef(false)
+  const feedbackTimerRef = useRef<number | null>(null)
+  const autoGenerationTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     planningStateRef.current = planningState
@@ -315,6 +363,37 @@ function App() {
   useEffect(() => {
     audienceDisplayRef.current = audienceDisplay
   }, [audienceDisplay])
+
+  useEffect(() => {
+    generatedParagraphRef.current = generatedParagraph
+  }, [generatedParagraph])
+
+  const clearFeedbackTimer = useCallback(() => {
+    if (feedbackTimerRef.current != null) {
+      window.clearTimeout(feedbackTimerRef.current)
+      feedbackTimerRef.current = null
+    }
+  }, [])
+
+  const clearAutoGenerationTimer = useCallback(() => {
+    if (autoGenerationTimerRef.current != null) {
+      window.clearTimeout(autoGenerationTimerRef.current)
+      autoGenerationTimerRef.current = null
+    }
+  }, [])
+
+  const showTemporaryScriptFeedback = useCallback(
+    (feedback: ScriptFeedback) => {
+      clearFeedbackTimer()
+      setScriptFeedback(feedback)
+
+      feedbackTimerRef.current = window.setTimeout(() => {
+        setScriptFeedback('idle')
+        feedbackTimerRef.current = null
+      }, 1600)
+    },
+    [clearFeedbackTimer],
+  )
 
   const mark = useCallback((label: string, detail?: string) => {
     timingIdRef.current += 1
@@ -421,10 +500,13 @@ function App() {
 
   const buildPlannerPrompt = useCallback(() => {
     const recentContext = finalizedTextRef.current.trim() || '(none yet)'
+    const acceptedScripts = acceptedScriptsRef.current.slice(-3)
+    const skippedScripts = skippedScriptsRef.current.slice(-2)
 
     return [
       'You are writing the next thing I should say in an improvised live demo.',
       'Use the presentation goal and recent transcript. Stay specific to the speaker topic.',
+      'If the presenter went off script, follow the latest spoken topic instead of forcing the old script.',
       'Write in English only. Return one short paragraph first. No bullets and no label before the paragraph.',
       'After the paragraph, include a newline, the exact marker ---VISUAL_CUES_JSON---, then strict JSON for 1-2 lightweight visual cues.',
       'The visual cues should target a glyph-particle scene, not an image. Keep them compact.',
@@ -433,6 +515,10 @@ function App() {
       `Presentation goal:\n${presentationBriefRef.current || '(no explicit brief)'}`,
       '',
       `Recent finalized speaker transcript:\n${recentContext}`,
+      '',
+      `Accepted/read generated scripts:\n${acceptedScripts.length ? acceptedScripts.join('\n') : '(none yet)'}`,
+      '',
+      `Skipped or superseded scripts:\n${skippedScripts.length ? skippedScripts.join('\n') : '(none yet)'}`,
     ].join('\n')
   }, [])
 
@@ -461,8 +547,10 @@ function App() {
       planningStartedAtRef.current = performance.now()
       setPlanningDraft('')
       setGeneratedParagraph(null)
+      generatedParagraphRef.current = null
       setPlanningState('generating')
       planningStateRef.current = 'generating'
+      setScriptFeedback('idle')
       mark('llm request started', reason)
       planningRequestIdRef.current += 1
 
@@ -580,6 +668,7 @@ function App() {
       }
 
       hasGeneratedRef.current = true
+      generatedParagraphRef.current = generated
       setGeneratedParagraph(generated)
       setPlanningDraft(paragraph)
       setPlanningState('ready')
@@ -596,6 +685,60 @@ function App() {
       }
     },
     [mark],
+  )
+
+  const clearVisibleScript = useCallback(() => {
+    generatedParagraphRef.current = null
+    setGeneratedParagraph(null)
+    setPlanningDraft('')
+  }, [])
+
+  const completeCurrentScript = useCallback(
+    (spokenTranscript: string) => {
+      const currentScript = generatedParagraphRef.current?.text
+
+      if (!currentScript) return
+
+      acceptedScriptsRef.current = [...acceptedScriptsRef.current, currentScript].slice(-5)
+      hasGeneratedRef.current = false
+      planningStateRef.current = 'consumed'
+      setPlanningState('consumed')
+      showTemporaryScriptFeedback('matched')
+      mark('script completed', `matched after: ${spokenTranscript}`)
+      clearAutoGenerationTimer()
+
+      autoGenerationTimerRef.current = window.setTimeout(() => {
+        clearVisibleScript()
+        planningStateRef.current = 'idle'
+        setPlanningState('idle')
+        requestPlanning('last two words matched')
+        autoGenerationTimerRef.current = null
+      }, 650)
+    },
+    [clearAutoGenerationTimer, clearVisibleScript, mark, requestPlanning, showTemporaryScriptFeedback],
+  )
+
+  const handleScriptDivergence = useCallback(
+    (spokenTranscript: string) => {
+      const currentScript = generatedParagraphRef.current?.text
+
+      if (!currentScript) return
+
+      skippedScriptsRef.current = [...skippedScriptsRef.current, currentScript].slice(-5)
+      hasGeneratedRef.current = false
+      planningStateRef.current = 'idle'
+      setPlanningState('idle')
+      showTemporaryScriptFeedback('diverged')
+      mark('script diverged', spokenTranscript)
+      clearAutoGenerationTimer()
+
+      autoGenerationTimerRef.current = window.setTimeout(() => {
+        clearVisibleScript()
+        requestPlanning('topic changed')
+        autoGenerationTimerRef.current = null
+      }, 300)
+    },
+    [clearAutoGenerationTimer, clearVisibleScript, mark, requestPlanning, showTemporaryScriptFeedback],
   )
 
   const finishDisplayExtraction = useCallback(
@@ -682,6 +825,21 @@ function App() {
 
         appendFinalizedChunk(transcript, 'speech')
 
+        const currentScript = generatedParagraphRef.current?.text
+        const canEvaluateScript =
+          currentScript &&
+          (planningStateRef.current === 'ready' || planningStateRef.current === 'reading')
+
+        if (canEvaluateScript && hasLastTwoWordMatch(transcript, currentScript)) {
+          completeCurrentScript(transcript)
+          return
+        }
+
+        if (canEvaluateScript && isLikelyTopicChange(transcript, currentScript)) {
+          handleScriptDivergence(transcript)
+          return
+        }
+
         if (!hasGeneratedRef.current && planningStateRef.current === 'idle') {
           requestPlanning('first finalized speech')
         }
@@ -733,7 +891,16 @@ function App() {
         mark('error', message)
       }
     },
-    [appendFinalizedChunk, finishDisplayExtraction, finishPlanning, handlePlanningDelta, mark, requestPlanning],
+    [
+      appendFinalizedChunk,
+      completeCurrentScript,
+      finishDisplayExtraction,
+      finishPlanning,
+      handlePlanningDelta,
+      handleScriptDivergence,
+      mark,
+      requestPlanning,
+    ],
   )
 
   const closeRealtimeHandles = useCallback(() => {
@@ -824,14 +991,19 @@ function App() {
   }, [closeRealtimeHandles, configureSession, handleServerEvent, mark, stopRealtime])
 
   const skipCurrentScript = useCallback(() => {
+    const currentScript = generatedParagraphRef.current?.text
+
+    if (currentScript) {
+      skippedScriptsRef.current = [...skippedScriptsRef.current, currentScript].slice(-5)
+    }
+
     hasGeneratedRef.current = false
     planningStateRef.current = 'idle'
     planningRawRef.current = ''
-    setGeneratedParagraph(null)
-    setPlanningDraft('')
+    clearVisibleScript()
     setPlanningState('idle')
     mark('script skipped')
-  }, [mark])
+  }, [clearVisibleScript, mark])
 
   const regenerateScript = useCallback(() => {
     skipCurrentScript()
@@ -843,25 +1015,33 @@ function App() {
     finalizedChunksRef.current = []
     finalizedTextRef.current = ''
     hasGeneratedRef.current = false
+    acceptedScriptsRef.current = []
+    skippedScriptsRef.current = []
     planningStateRef.current = 'idle'
     planningRawRef.current = ''
     setFinalizedChunks([])
     setAudienceDisplay(createLocalDisplay(''))
-    setGeneratedParagraph(null)
-    setPlanningDraft('')
+    clearVisibleScript()
     setPlanningState('idle')
+    setScriptFeedback('idle')
     setTimings([])
     setLastError('')
     mark('session cleared')
-  }, [mark])
+  }, [clearVisibleScript, mark])
 
   useEffect(() => {
     return () => {
       closeRealtimeHandles()
+      clearFeedbackTimer()
+      clearAutoGenerationTimer()
     }
-  }, [closeRealtimeHandles])
+  }, [clearAutoGenerationTimer, clearFeedbackTimer, closeRealtimeHandles])
 
-  const canGenerate = connectionState === 'listening' && planningState !== 'generating'
+  const canGenerate =
+    connectionState === 'listening' &&
+    planningState !== 'generating' &&
+    !generatedParagraph
+  const canRegenerate = connectionState === 'listening' && planningState !== 'generating'
   const visibleScript = planningDraft || generatedParagraph?.text || ''
   const emphasisSet = new Set(audienceDisplay.emphasis.map(normalizeDisplayWord))
 
@@ -974,7 +1154,7 @@ function App() {
             </section>
           ) : null}
 
-          <section className="next-script">
+          <section className={`next-script ${scriptFeedback}`}>
             <div className="section-heading-row">
               <h2>Generated next script</h2>
               <span className={`script-state ${planningState}`}>
@@ -997,7 +1177,7 @@ function App() {
                 type="button"
                 className="icon-button secondary"
                 onClick={regenerateScript}
-                disabled={!canGenerate}
+                disabled={!canRegenerate}
                 aria-label="Regenerate"
                 title="Regenerate"
               >

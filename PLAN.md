@@ -436,50 +436,50 @@ Make the core live product loop reliable before investing in visuals: real-time 
 
 ### 1. Realtime Display Summary
 
-- [ ] Confirm finalized speech always triggers display extraction in the MVP.
-- [ ] Keep the local English fallback summary immediate so the big text updates even when the LLM is slow.
-- [ ] Keep partial transcript in the footer/debug line only.
-- [ ] Ensure LLM display extraction returns concise English slide-like text.
-- [ ] Ensure emphasis is selected by meaning, not by word position.
-- [ ] Reject malformed or non-English display extraction and keep the local fallback.
-- [ ] Avoid layout shift and broken multi-line fragments in the big display.
+- [x] Confirm finalized speech always triggers display extraction in the MVP.
+- [x] Keep the local English fallback summary immediate so the big text updates even when the LLM is slow.
+- [x] Keep partial transcript in the footer/debug line only.
+- [x] Ensure LLM display extraction returns concise English slide-like text.
+- [x] Ensure emphasis is selected by meaning, not by word position.
+- [x] Reject malformed or non-English display extraction and keep the local fallback.
+- [x] Avoid layout shift and broken multi-line fragments in the big display.
 
 ### 2. Generated Script Lifecycle
 
-- [ ] Keep the current generated script immutable while it is visible.
-- [ ] Do not regenerate or replace the current script from normal finalized speech.
-- [ ] Generate only when the script queue is empty, the presenter clicks a control, or the current script is completed.
-- [ ] Preserve manual controls: `Generate next`, `Done reading`, `Regenerate`, `Skip`, and `Accept`.
-- [ ] Track script states explicitly: `idle`, `generating`, `ready`, `reading`, `consumed`, and `failed`.
-- [ ] Prevent stale generated paragraphs from overwriting newer presenter intent.
+- [x] Keep the current generated script immutable while it is visible.
+- [x] Do not regenerate or replace the current script from normal finalized speech.
+- [x] Generate only when the script queue is empty, the presenter clicks a control, or the current script is completed.
+- [x] Preserve simplified manual controls: `Next`, `Regenerate`, and `Skip`.
+- [x] Track script states explicitly: `idle`, `generating`, `ready`, `reading`, `consumed`, and `failed`.
+- [x] Prevent stale generated paragraphs from overwriting newer presenter intent.
 
 ### 3. Last-Two-Words Completion
 
-- [ ] Normalize finalized speech and generated script text for loose word matching.
-- [ ] Detect when finalized speech matches the last two meaningful words of the current generated script.
-- [ ] Mark the current generated script complete when the match succeeds.
-- [ ] Append or mark the completed generated script in context so future generations know it was accepted/read.
-- [ ] Show a visible success state such as a brief green highlight in the script panel.
-- [ ] Automatically allow or start the next script generation after completion.
-- [ ] Keep manual `Done reading` as a fallback even when speech matching exists.
+- [x] Normalize finalized speech and generated script text for loose word matching.
+- [x] Detect when finalized speech matches the last two meaningful words of the current generated script.
+- [x] Mark the current generated script complete when the match succeeds.
+- [x] Append or mark the completed generated script in context so future generations know it was accepted/read.
+- [x] Show a visible success state such as a brief green highlight in the script panel.
+- [x] Automatically allow or start the next script generation after completion.
+- [x] Keep manual `Skip` / `Regenerate` controls as fallbacks even when speech matching exists.
 
 ### 4. Going Off Script
 
-- [ ] Detect when finalized speech diverges from the current generated script strongly enough to imply topic change or skipped script.
-- [ ] Start with simple normalized word-overlap heuristics before adding model reasoning.
-- [ ] If divergence is detected, mark the current generated script as skipped.
-- [ ] Regenerate from the latest spoken context and presentation brief.
-- [ ] Avoid false positives while the presenter is still reading the generated script.
-- [ ] Preserve explicit `Skip` and `Regenerate` controls.
+- [x] Detect when finalized speech diverges from the current generated script strongly enough to imply topic change or skipped script.
+- [x] Start with simple normalized word-overlap heuristics before adding model reasoning.
+- [x] If divergence is detected, mark the current generated script as skipped.
+- [x] Regenerate from the latest spoken context and presentation brief.
+- [x] Avoid false positives while the presenter is still reading the generated script.
+- [x] Preserve explicit `Skip` and `Regenerate` controls.
 
 ### 5. Context Quality
 
-- [ ] Include the global presentation brief in every script and display-generation request.
-- [ ] Use the Phase 1 finalized chunk array as the primary context source.
-- [ ] Track generated scripts that were accepted/read.
-- [ ] Maintain a chronological recent-conversation window with speaker turns and accepted generated scripts.
-- [ ] Avoid summarization on the critical path.
-- [ ] Expose a compact context payload for provider calls.
+- [x] Include the global presentation brief in every script and display-generation request.
+- [x] Use the Phase 1 finalized chunk array as the primary context source.
+- [x] Track generated scripts that were accepted/read.
+- [x] Maintain a chronological recent-conversation window with speaker turns and accepted generated scripts.
+- [x] Avoid summarization on the critical path.
+- [x] Expose a compact context payload for provider calls.
 
 ### Outputs
 

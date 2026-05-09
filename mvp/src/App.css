@@ -243,6 +243,16 @@ button:disabled {
   padding: 18px;
 }
 
+.next-script.matched {
+  border-color: #16a34a;
+  background: #f0fdf4;
+}
+
+.next-script.diverged {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
 .next-script p {
   max-height: 34svh;
   overflow: auto;
@@ -278,6 +288,12 @@ button:disabled {
 .script-state.ready {
   background: #dcfce7;
   color: #166534;
+}
+
+.script-state.reading,
+.script-state.consumed {
+  background: #dbeafe;
+  color: #1d4ed8;
 }
 
 .script-state.failed {

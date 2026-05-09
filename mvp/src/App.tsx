@@ -99,6 +99,7 @@ const referenceLayoutVariants: ReferenceLayoutVariant[] = [
   'text-right-art-left',
   'text-top-art-bottom',
 ]
+const defaultAudienceText = 'The Presentation'
 const maxPlanningRetries = 1
 const storyBeatIdeas = [
   'set up the promise in one clear line',
@@ -356,9 +357,19 @@ function isProbablyEnglish(value: string) {
   if (!text) return false
 
   const latinChars = text.match(/[a-z]/gi)?.length || 0
-  const blockedChars = text.match(/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/g)?.length || 0
+  const blockedScriptRanges = [
+    /[\u0400-\u04ff]/,
+    /[\u0590-\u05ff]/,
+    /[\u0600-\u06ff]/,
+    /[\u0900-\u097f]/,
+    /[\u0e00-\u0e7f]/,
+    /[\u3040-\u30ff]/,
+    /[\u3400-\u9fff]/,
+    /[\uac00-\ud7af]/,
+  ]
+  const hasBlockedScript = blockedScriptRanges.some((pattern) => pattern.test(text))
 
-  return latinChars >= 2 && blockedChars === 0
+  return latinChars >= 2 && !hasBlockedScript
 }
 
 function createLocalDisplay(text: string, sourceChunkId?: string): AudienceDisplay {
@@ -509,7 +520,7 @@ function App() {
   const initialDisplay = useMemo(
     () =>
       createLocalDisplay(
-        evalScene?.sourcePhrase || phaseZeroFixture.typedInput.at(-1)?.text || '',
+        evalScene?.sourcePhrase || defaultAudienceText,
       ),
     [evalScene],
   )
@@ -681,9 +692,10 @@ function App() {
                   text: [
                     'Create a slide-like audience display from finalized speech.',
                     'Use quick reasoning silently. Return English only.',
+                    'If the transcript contains non-English words, translate the meaning to simple English before creating the display.',
                     'Return strict JSON only: {"display":"2-6 word phrase","emphasis":["one meaningful word"],"color":"green|blue|red|gold"}.',
                     'Choose the emphasized word by meaning, not by position.',
-                    'Avoid raw transcript fragments and avoid non-English output.',
+                    'Never copy non-English transcript fragments. Do not output any non-English characters or words.',
                     '',
                     `Presentation goal:\n${presentationBriefRef.current || '(no explicit brief)'}`,
                     '',
@@ -715,6 +727,10 @@ function App() {
       const normalized = normalizeSpaces(candidate)
 
       if (!normalized) return
+      if (!isProbablyEnglish(normalized)) {
+        mark('display rejected', 'non-English candidate')
+        return
+      }
 
       setAudienceDisplay(createLocalDisplay(normalized, chunkId))
       requestDisplayExtraction(normalized, chunkId)
@@ -760,6 +776,10 @@ function App() {
       const trimmed = normalizeSpaces(text)
 
       if (!trimmed) return null
+      if (!isProbablyEnglish(trimmed)) {
+        mark('finalized text rejected', 'non-English text')
+        return null
+      }
 
       const chunk: StreamChunk = {
         id: `${source}-${Date.now()}`,
@@ -829,7 +849,8 @@ function App() {
       'Do not say things like leverage, enable, facilitate, optimize, paradigm, robust, seamless, architecture, pipeline, interface, infrastructure, orchestration, or stakeholders unless the presenter already said that exact word.',
       'Use the presentation goal and recent transcript. Stay specific to the speaker topic.',
       'If the presenter went off script, follow the latest spoken topic instead of forcing the old script.',
-      'Write in English only. Return one short spoken paragraph first, about 2-4 short sentences. No bullets and no label before the paragraph.',
+      'Write in English only. If recent transcript contains non-English text, translate or summarize its meaning in simple English; never copy non-English words or characters.',
+      'Return one short spoken paragraph first, about 2-4 short sentences. No bullets and no label before the paragraph.',
       ...visualInstructions,
       '',
       `Presentation goal:\n${presentationBriefRef.current || '(no explicit brief)'}`,
@@ -919,7 +940,7 @@ function App() {
       session: {
         type: 'realtime',
         instructions:
-          'You are a silent live demo writer. Do not speak out loud unless explicitly asked. Always produce English text. Write casual, fun presenter script with very simple words, short sentences, and no jargon. Make every line easy to pronounce live.',
+          'You are a silent live demo writer. Do not speak out loud unless explicitly asked. Always produce English text only. If the user speech includes non-English text, translate or summarize it into simple English before using it. Never output non-English words or characters. Write casual, fun presenter script with very simple words, short sentences, and no jargon. Make every line easy to pronounce live.',
         audio: {
           input: {
             transcription: {
@@ -1301,7 +1322,9 @@ function App() {
             .trim()
         const visibleLiveText = liveText.split(/\s+/).slice(-18).join(' ')
 
-        setPartialTranscript(visibleLiveText)
+        setPartialTranscript(
+          !visibleLiveText || isProbablyEnglish(visibleLiveText) ? visibleLiveText : '',
+        )
         setSpeechSignals(speechSignalsFromText(visibleLiveText))
         return
       }
@@ -1316,6 +1339,10 @@ function App() {
         )
 
         if (!transcript || streamPausedRef.current) return
+        if (!isProbablyEnglish(transcript)) {
+          mark('speech transcript rejected', 'non-English transcript')
+          return
+        }
 
         appendFinalizedChunk(transcript, 'speech')
         setSpeechSignals(speechSignalsFromText(transcript))

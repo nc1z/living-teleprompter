@@ -418,7 +418,7 @@ async function createRealtimeSession(req, res) {
     type: 'realtime',
     model: REALTIME_MODEL,
     instructions:
-      'You are a silent live presentation planner. Do not speak out loud unless explicitly asked. When asked for a planning response, generate concise presenter script text quickly.',
+      'You are a silent live presentation planner. Do not speak out loud unless explicitly asked. When asked for a planning response, generate concise presenter script text quickly. Always output English only. If user speech includes non-English text, translate or summarize it into simple English before using it. Never output non-English words or characters.',
     audio: {
       input: {
         transcription: {

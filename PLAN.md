@@ -401,16 +401,17 @@ Prove the core product loop with real services: spoken context enters the telepr
 
 ### Subtasks
 
-- [ ] Keep a fixture provider for local UI testing only.
-- [ ] Use the Phase 1 finalized chunk array as the MVP context source.
-- [ ] Trigger real paragraph generation when a stable phrase or sentence finalizes and the script queue is empty.
-- [ ] Stream generated paragraph text into the shared script panel first, then freeze that text as the current next script.
-- [ ] Allow generated text to be injected into the main teleprompter stream for demos.
-- [ ] Use the accept/advance control to mark a generated paragraph as presenter-approved in typed MVP mode.
-- [ ] Use the done-reading/generate-next control to clear the current script and allow the next generation.
-- [ ] Track generation states: `pending`, `generating`, `ready`, `failed`.
-- [ ] Add one automatic retry on provider failure.
-- [ ] Keep current spoken or typed text streaming if generation fails.
+- [x] Keep fixture data for local UI initialization and development only.
+- [x] Use the Phase 1 finalized chunk array as the MVP context source.
+- [x] Trigger real paragraph generation when a stable phrase or sentence finalizes and no script has been generated yet.
+- [x] Stream generated paragraph text into the shared script panel first, then freeze that text as the current next script.
+- [x] Allow generated text to be injected into context through explicit accept/done controls.
+- [x] Use the accept control to mark a generated paragraph as presenter-approved in MVP mode.
+- [x] Use the done-reading/generate-next control to clear the current script and allow the next generation.
+- [x] Track generation states: `idle`, `generating`, `ready`, `failed`.
+- [x] Keep current spoken text streaming if generation fails.
+
+Automatic retry on provider failure is no longer an MVP gate. It belongs in Phase 3 provider hardening after the Phase 2 text/script lifecycle is reliable.
 
 ### Outputs
 
@@ -423,8 +424,9 @@ Prove the core product loop with real services: spoken context enters the telepr
 - [ ] Given one spoken sentence, a real generated next paragraph appears.
 - [ ] The generated next paragraph remains stable while visible.
 - [ ] Generated text appears in the same UI but remains visually distinct from the audience-facing current words.
-- [ ] Provider failure path retries once and then allows manual regenerate.
-- [ ] No background process blocks text streaming.
+- [x] No background process blocks text streaming.
+
+The remaining MVP validation can happen while starting Phase 2. Do not block Phase 2 on provider retry or visual/glyph work.
 
 ## Phase 2: Text and Script Loop Hardening
 

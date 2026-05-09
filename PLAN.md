@@ -84,6 +84,20 @@ These lessons came from testing the `poc/` Realtime spike and should override ol
   - fallback estimate
 - Timing and raw event panels are useful for development but should be hidden by default once the basic spike works.
 
+### Frontend Runtime Architecture
+
+- The productized frontend should use React for the app shell, not for the animation loop.
+- React owns application state and UI composition: setup prompt, microphone controls, Realtime connection status, generated script queue, stable audience display, debug/cost panels, and future presenter/audience separation.
+- The canvas glyph engine owns the hot path: `requestAnimationFrame`, particles, velocities, glyph homes, force fields, retargeting, resize handling, and drawing.
+- Realtime API owns live intelligence events: transcription, next-script generation, display extraction, voice-to-action events, and compact glyph scene config generation.
+- React should pass stable config and signal changes into the engine through refs/effects. Do not keep per-frame particle state in React.
+- Keep this boundary explicit:
+  - React = application state + UI composition.
+  - Canvas engine = realtime animation runtime.
+  - Realtime API = speech, transcript, script, and scene intelligence.
+- The current plain JavaScript POC is fine for the spike. The production version should migrate the app shell to React while keeping the canvas engine framework-agnostic.
+- A likely component boundary is `<GlyphStage sceneConfig={sceneConfig} speechSignals={speechSignals} />`, where the component creates the engine once and calls imperative methods like `engine.retarget(sceneConfig)` and `engine.updateSpeechSignals(speechSignals)`.
+
 ## Voice-to-Action Runtime Architecture
 
 The live product should use API runtime, not Codex runtime.

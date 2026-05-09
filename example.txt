@@ -1,5 +1,3 @@
-I am demoing Living Teleprompter: a tool that turns improvised speech into a live presentation with no slides and no preparation.
+I am doing a live demo of Living Teleprompter: a tool that turns unplanned speech into a polished presentation in real time.
 
-Generate short paragraphs I can say in 15–20 seconds. Cue glyph visuals as I speak: a dragon when something feels powerful, a forest for growth, rain or lightning for tension, fireflies during pauses, a product reveal moment when I describe something new.
-
-Tone: confident, warm, slightly theatrical. Easy to read aloud. If I go off script, follow me and make the detour part of the demo.
+Write short paragraphs I can say in 15–20 seconds. Each one should flow naturally when read aloud. Keep the tone confident and slightly theatrical — this is a live product demo, not a pitch deck.

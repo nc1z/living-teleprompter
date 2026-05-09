@@ -159,7 +159,7 @@
 
 .live-transcript {
   position: fixed;
-  right: 48px;
+  right: calc(min(440px, 34vw) + 64px);
   bottom: 28px;
   left: 48px;
   z-index: 2;
@@ -171,6 +171,10 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.app-shell.overlay-hidden .live-transcript {
+  right: 48px;
 }
 
 .live-transcript.active {

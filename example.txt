@@ -1,3 +1,0 @@
-I am doing a live demo of Living Teleprompter: a tool that turns unplanned speech into a polished presentation in real time.
-
-Write short paragraphs I can say in 15–20 seconds. Each one should flow naturally when read aloud. Keep the tone confident and slightly theatrical — this is a live product demo, not a pitch deck.

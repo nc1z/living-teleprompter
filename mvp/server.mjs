@@ -83,50 +83,56 @@ async function createRealtimeSession(req, res) {
   }
 
   const sdp = await readRequestBody(req)
-  const formData = new FormData()
+  const fd = new FormData()
 
-  formData.set('sdp', sdp)
-  formData.set(
-    'session',
-    JSON.stringify({
-      type: 'realtime',
-      model: REALTIME_MODEL,
-      instructions:
-        'You are a silent live presentation planner. Do not speak out loud unless explicitly asked. Generate concise presenter script and glyph scene intent quickly.',
-      audio: {
-        input: {
-          transcription: {
-            model: TRANSCRIPTION_MODEL,
-            language: 'en',
-          },
-          turn_detection: {
-            type: 'server_vad',
-            threshold: 0.5,
-            prefix_padding_ms: 300,
-            silence_duration_ms: 500,
-            create_response: false,
-            interrupt_response: false,
-          },
+  const sessionConfig = {
+    type: 'realtime',
+    model: REALTIME_MODEL,
+    instructions:
+      'You are a silent live presentation planner. Do not speak out loud unless explicitly asked. When asked for a planning response, generate concise presenter script text quickly.',
+    audio: {
+      input: {
+        transcription: {
+          model: TRANSCRIPTION_MODEL,
+          language: 'en',
         },
-        output: {
-          voice: 'marin',
+        turn_detection: {
+          type: 'server_vad',
+          threshold: 0.5,
+          prefix_padding_ms: 300,
+          silence_duration_ms: 500,
+          create_response: false,
+          interrupt_response: false,
         },
       },
-    }),
-  )
+      output: {
+        voice: 'marin',
+      },
+    },
+  }
 
+  fd.set('sdp', sdp)
+  fd.set('session', JSON.stringify(sessionConfig))
+
+  const startedAt = Date.now()
   const upstream = await fetch('https://api.openai.com/v1/realtime/calls', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${OPENAI_API_KEY}`,
       'OpenAI-Safety-Identifier': 'living-teleprompter-mvp',
     },
-    body: formData,
+    body: fd,
   })
 
   const answer = await upstream.text()
+  const elapsedMs = Date.now() - startedAt
 
   if (!upstream.ok) {
+    console.error('Realtime session creation failed', {
+      status: upstream.status,
+      elapsedMs,
+      answer,
+    })
     send(
       res,
       upstream.status,
@@ -140,6 +146,9 @@ async function createRealtimeSession(req, res) {
     return
   }
 
+  console.log(
+    `Realtime session created in ${elapsedMs}ms (${REALTIME_MODEL}, ${TRANSCRIPTION_MODEL})`,
+  )
   send(res, 200, answer, 'application/sdp')
 }
 
@@ -168,7 +177,10 @@ async function serveStatic(req, res) {
 
 const server = http.createServer(async (req, res) => {
   try {
-    if (req.method === 'POST' && req.url === '/api/realtime/session') {
+    if (
+      req.method === 'POST' &&
+      (req.url === '/session' || req.url === '/api/realtime/session')
+    ) {
       await createRealtimeSession(req, res)
       return
     }

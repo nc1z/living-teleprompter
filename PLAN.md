@@ -274,25 +274,25 @@ Prove the core technical bet before polishing the UI: live speech must become vi
 
 ### Subtasks
 
-- [ ] Connect microphone input to OpenAI Realtime transcription or an equivalent real streaming speech-to-text path.
-- [ ] Use WebRTC for browser microphone audio unless the spike proves a server-side WebSocket path is necessary.
-- [ ] Use the WebRTC data channel for Realtime control events and transcript/planning events.
-- [ ] Render transcription deltas as they arrive in a minimal debug view.
-- [ ] Detect stable phrases or finalized sentences from the transcription stream.
-- [ ] Send a compact context payload to a real LLM/script planner as soon as a stable phrase or sentence is available.
-- [ ] Use low-latency settings for the script planner, favoring first useful text over deep reasoning.
-- [ ] Keep automatic public model responses off; manually trigger text-only planning responses.
-- [ ] Stream generated next-paragraph text into a simple presenter preview area.
-- [ ] Include lightweight structured visual cues in the same generation response when possible, but do not block on them.
-- [ ] Log timing metrics:
-  - [ ] speech partial received
-  - [ ] sentence or phrase finalized
-  - [ ] LLM request started
-  - [ ] first generated text received
-  - [ ] usable paragraph received
-  - [ ] visual cue received
-- [ ] Add cancellation or stale-response handling when a newer sentence supersedes an older generation.
-- [ ] Keep deterministic fixtures available only as a fallback for UI work, not as the feasibility proof.
+- [x] Connect microphone input to OpenAI Realtime transcription or an equivalent real streaming speech-to-text path.
+- [x] Use WebRTC for browser microphone audio unless the spike proves a server-side WebSocket path is necessary.
+- [x] Use the WebRTC data channel for Realtime control events and transcript/planning events.
+- [x] Render transcription deltas as they arrive in a minimal debug view.
+- [x] Detect stable phrases or finalized sentences from the transcription stream.
+- [x] Send a compact context payload to a real LLM/script planner as soon as a stable phrase or sentence is available.
+- [x] Use low-latency settings for the script planner, favoring first useful text over deep reasoning.
+- [x] Keep automatic public model responses off; manually trigger text-only planning responses.
+- [x] Stream generated next-paragraph text into a simple presenter preview area.
+- [x] Include lightweight structured visual cues in the same generation response when possible, but do not block on them.
+- [x] Log timing metrics:
+  - [x] speech partial received
+  - [x] sentence or phrase finalized
+  - [x] LLM request started
+  - [x] first generated text received
+  - [x] usable paragraph received
+  - [x] visual cue received
+- [x] Add cancellation or stale-response handling when a newer sentence supersedes an older generation.
+- [x] Keep deterministic fixtures available only as a fallback for UI work, not as the feasibility proof.
 
 ### Outputs
 
@@ -308,6 +308,8 @@ Prove the core technical bet before polishing the UI: live speech must become vi
 - [ ] A usable generated paragraph appears within 3-5 seconds under normal conditions.
 - [ ] If generation is late or fails, transcription continues streaming.
 - [ ] The spike uses a real provider, not a mock, for the pass/fail decision.
+
+Live validation requires running the MVP server with `OPENAI_API_KEY` and testing microphone input in the browser.
 
 ## Phase 1: Streaming Teleprompter Page
 

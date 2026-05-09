@@ -310,6 +310,32 @@ button:disabled {
   z-index: 4;
 }
 
+.script-toggle.floating {
+  position: fixed;
+  top: 66px;
+  right: 18px;
+  z-index: 4;
+}
+
+.script-overlay {
+  position: fixed;
+  top: 96px;
+  bottom: 88px;
+  left: 34px;
+  z-index: 3;
+  width: min(34vw, 430px);
+  overflow: hidden;
+  color: #111827;
+  font-size: clamp(16px, 1.35vw, 24px);
+  font-weight: 680;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  opacity: 0.52;
+  pointer-events: none;
+}
+
 .control-section {
   border-bottom: 1px solid #e6e6e6;
   padding-bottom: 18px;
@@ -543,6 +569,14 @@ code {
     right: auto;
     bottom: auto;
     width: 76vw;
+  }
+
+  .script-overlay {
+    top: 88px;
+    bottom: 110px;
+    left: 18px;
+    width: min(58vw, 360px);
+    font-size: clamp(14px, 4vw, 20px);
   }
 
   .app-shell.reference-layout-text-left-art-right .stage-phrase,

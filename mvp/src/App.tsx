@@ -1,5 +1,6 @@
 import {
   Bug,
+  Eye,
   EyeOff,
   Mic,
   Pause,
@@ -553,6 +554,7 @@ function App() {
   const [timings, setTimings] = useState<TimingEntry[]>([])
   const [lastError, setLastError] = useState('')
   const [overlayVisible, setOverlayVisible] = useState(true)
+  const [scriptOverlayVisible, setScriptOverlayVisible] = useState(true)
   const [debugVisible, setDebugVisible] = useState(false)
   const [streamPaused, setStreamPaused] = useState(false)
   const [activeSceneConfig, setActiveSceneConfig] =
@@ -1564,6 +1566,7 @@ function App() {
     setVisualReferences([])
     setPlanningState('idle')
     setScriptFeedback('idle')
+    setScriptOverlayVisible(true)
     setTimings([])
     setLastError('')
     mark('session cleared')
@@ -1640,13 +1643,31 @@ function App() {
       </section>
 
       {!overlayVisible && !isEvalMode ? (
-        <button
-          type="button"
-          className="overlay-toggle floating"
-          onClick={() => setOverlayVisible(true)}
-        >
-          Controls
-        </button>
+        <>
+          <button
+            type="button"
+            className="overlay-toggle floating"
+            onClick={() => setOverlayVisible(true)}
+          >
+            Controls
+          </button>
+          <button
+            type="button"
+            className="script-toggle floating icon-button secondary"
+            onClick={() => setScriptOverlayVisible((current) => !current)}
+            disabled={!visibleScript}
+            aria-label={scriptOverlayVisible ? 'Hide generated script' : 'Show generated script'}
+            title={scriptOverlayVisible ? 'Hide generated script' : 'Show generated script'}
+          >
+            {scriptOverlayVisible ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+          </button>
+        </>
+      ) : null}
+
+      {!overlayVisible && !isEvalMode && scriptOverlayVisible && visibleScript ? (
+        <aside className="script-overlay" aria-label="Generated next script">
+          {visibleScript}
+        </aside>
       ) : null}
 
       {overlayVisible && !isEvalMode ? (

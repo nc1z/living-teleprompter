@@ -147,9 +147,19 @@ button:disabled {
 }
 
 .icon-button {
-  min-width: 56px;
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  min-width: 40px;
+  height: 38px;
   min-height: 38px;
-  padding: 9px 12px;
+  padding: 0;
+}
+
+.icon-button svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.2;
 }
 
 .icon-button.secondary,
@@ -162,6 +172,11 @@ button:disabled {
 .ghost-button {
   padding: 6px 10px;
   font-size: 12px;
+}
+
+.text-button {
+  min-height: 38px;
+  padding-inline: 18px;
 }
 
 .overlay-toggle.floating {

@@ -1,3 +1,14 @@
+import {
+  Bug,
+  EyeOff,
+  Mic,
+  Pause,
+  Play,
+  RefreshCw,
+  SkipForward,
+  Square,
+  Trash2,
+} from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { clientConfig } from './teleprompter/config'
@@ -827,23 +838,6 @@ function App() {
     requestPlanning('manual regenerate')
   }, [requestPlanning, skipCurrentScript])
 
-  const acceptCurrentScript = useCallback(() => {
-    if (!generatedParagraph?.text) return
-
-    appendFinalizedChunk(generatedParagraph.text, 'generated')
-    skipCurrentScript()
-    mark('script accepted')
-  }, [appendFinalizedChunk, generatedParagraph, mark, skipCurrentScript])
-
-  const doneReadingAndGenerate = useCallback(() => {
-    if (generatedParagraph?.text) {
-      appendFinalizedChunk(generatedParagraph.text, 'generated')
-    }
-
-    skipCurrentScript()
-    requestPlanning('done reading')
-  }, [appendFinalizedChunk, generatedParagraph, requestPlanning, skipCurrentScript])
-
   const clearSession = useCallback(() => {
     setPartialTranscript('')
     finalizedChunksRef.current = []
@@ -908,10 +902,12 @@ function App() {
               <h2>Realtime</h2>
               <button
                 type="button"
-                className="ghost-button"
+                className="icon-button secondary"
                 onClick={() => setOverlayVisible(false)}
+                aria-label="Hide controls"
+                title="Hide controls"
               >
-                Hide
+                <EyeOff aria-hidden="true" />
               </button>
             </div>
             <p className={`status-pill ${connectionState}`}>{status}</p>
@@ -924,7 +920,7 @@ function App() {
                 aria-label="Start microphone"
                 title="Start microphone"
               >
-                Mic
+                <Mic aria-hidden="true" />
               </button>
               <button
                 type="button"
@@ -934,7 +930,7 @@ function App() {
                 aria-label="Stop microphone"
                 title="Stop microphone"
               >
-                Stop
+                <Square aria-hidden="true" />
               </button>
               <button
                 type="button"
@@ -943,7 +939,7 @@ function App() {
                 aria-label={streamPaused ? 'Resume streaming' : 'Pause streaming'}
                 title={streamPaused ? 'Resume streaming' : 'Pause streaming'}
               >
-                {streamPaused ? 'Resume' : 'Pause'}
+                {streamPaused ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}
               </button>
               <button
                 type="button"
@@ -952,14 +948,16 @@ function App() {
                 aria-label="Clear session"
                 title="Clear session"
               >
-                Clear
+                <Trash2 aria-hidden="true" />
               </button>
               <button
                 type="button"
-                className="ghost-button"
+                className="icon-button secondary"
                 onClick={() => setDebugVisible((current) => !current)}
+                aria-label={debugVisible ? 'Hide debug' : 'Show debug'}
+                title={debugVisible ? 'Hide debug' : 'Show debug'}
               >
-                {debugVisible ? 'Hide debug' : 'Debug'}
+                <Bug aria-hidden="true" />
               </button>
             </div>
             {lastError ? <p className="error-text">{lastError}</p> : null}
@@ -984,27 +982,36 @@ function App() {
               </span>
             </div>
             <p className={visibleScript ? '' : 'muted'}>
-              {visibleScript || 'Speak a sentence, or click Generate next after context exists.'}
+              {visibleScript || 'Speak a sentence, or click Next after context exists.'}
             </p>
             <div className="button-row">
-              <button type="button" onClick={() => requestPlanning('manual')} disabled={!canGenerate}>
-                Generate next
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => requestPlanning('manual')}
+                disabled={!canGenerate}
+              >
+                Next
               </button>
               <button
                 type="button"
-                onClick={doneReadingAndGenerate}
-                disabled={!generatedParagraph || !canGenerate}
+                className="icon-button secondary"
+                onClick={regenerateScript}
+                disabled={!canGenerate}
+                aria-label="Regenerate"
+                title="Regenerate"
               >
-                Done reading
+                <RefreshCw aria-hidden="true" />
               </button>
-              <button type="button" onClick={regenerateScript} disabled={!canGenerate}>
-                Regenerate
-              </button>
-              <button type="button" onClick={skipCurrentScript} disabled={!generatedParagraph}>
-                Skip
-              </button>
-              <button type="button" onClick={acceptCurrentScript} disabled={!generatedParagraph}>
-                Accept
+              <button
+                type="button"
+                className="icon-button secondary"
+                onClick={skipCurrentScript}
+                disabled={!generatedParagraph}
+                aria-label="Skip"
+                title="Skip"
+              >
+                <SkipForward aria-hidden="true" />
               </button>
             </div>
           </section>

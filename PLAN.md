@@ -11,11 +11,11 @@
 
 - Prove the real LLM latency path early. The product fails if real speech-to-script generation cannot produce useful text fast enough.
 - Build the text loop around the real-time path. The presenter must be able to speak and immediately see readable, focused words while the LLM plans ahead.
-- Use OpenAI Realtime API or the realtime Agents SDK for live voice-to-action runtime. Codex is for building the app and prototyping local asset scripts, not for the live speech loop.
+- Use OpenAI Realtime API or the realtime Agents SDK for live voice-to-action runtime. Codex is for building the app and prototyping offline tooling, not for the live speech loop.
 - Keep Phase 1 DOM-first. PretextJS, canvas physics, and HTML-in-Canvas are later rendering layers, not MVP blockers.
 - Keep the presenter and audience surfaces separable. The MVP can use one shared page, but generated script and controls should live in an overlay that can later become a private presenter view.
 - Optimize the LLM path for speed. Use one streaming generation call that returns paragraph text first and lightweight visual cues in the same response.
-- Start visual generation as early as possible once a usable paragraph or cue exists.
+- Start glyph scene config generation or local scene retargeting as early as possible once a usable paragraph or cue exists.
 - Keep deterministic fixtures for development and visual testing only. They are not a substitute for the real LLM feasibility test.
 
 ## POC Learnings To Preserve
@@ -102,7 +102,7 @@ These lessons came from testing the `poc/` Realtime spike and should override ol
 
 The live product should use API runtime, not Codex runtime.
 
-Codex can help implement the project and may be used to prototype local asset-generation scripts. It should not sit in the real-time speech path. The speech loop needs a low-latency runtime based on OpenAI Realtime API or the realtime Agents SDK.
+Codex can help implement the project and may be used to prototype local scene-config tooling. It should not sit in the real-time speech path. The speech loop needs a low-latency runtime based on OpenAI Realtime API or the realtime Agents SDK.
 
 ### Preferred Browser Path
 
@@ -117,7 +117,7 @@ Use WebRTC for browser microphone audio:
 7. Transcription deltas update the teleprompter immediately.
 8. Stable phrases or finalized sentences update context immediately.
 9. Text-only script planning responses are triggered only when the script queue is empty.
-10. Tool/function calls or structured visual cues start background visual jobs for the queued script.
+10. Tool/function calls or structured visual cues start glyph scene config generation or local scene actions for the queued script.
 
 WebSockets are not the preferred browser path. Use WebSockets only if the audio pipeline moves server-side or if a server-to-server Realtime integration becomes necessary. In a WebSocket setup, the app must manually send encoded audio chunks and handle lower-level audio/event plumbing.
 
@@ -137,9 +137,10 @@ Voice-to-action means the model can request application actions through tool/fun
 
 - `queue_next_paragraph`: add generated presenter text to the script queue.
 - `create_visual_cues`: return phrase-linked visual cue objects.
-- `start_asset_generation`: start a background SVG/image/canvas asset job.
+- `set_glyph_scene_config`: apply or queue a compact glyph scene config.
+- `trigger_force_field`: trigger a speech-timed force field, burst, swirl, rain, forest growth, product reveal, or similar local canvas action.
 - `set_scene_mood`: update visual styling or motion direction.
-- `trigger_visual_at_phrase`: bind a ready asset or effect to a phrase match, paragraph index, and optional word index.
+- `trigger_visual_at_phrase`: bind a ready scene action or optional delayed asset to a phrase match, paragraph index, and optional word index.
 
 The app executes these actions locally or through its backend. The model proposes the action and arguments; the application remains responsible for actually mutating state, starting jobs, and rendering visuals.
 
@@ -153,7 +154,7 @@ Prove that the live demo concept can work with real services:
 
 1. OpenAI Realtime API can receive browser microphone input and return useful live transcription/planning events.
 2. WebRTC can stream speech smoothly enough for large text to appear while the presenter is still talking.
-3. Real image or visual asset generation can start from received context early enough to be useful during the generated paragraph.
+3. Real glyph scene config generation or local scene retargeting can start from received context early enough to be useful during the generated paragraph.
 
 ### Spike Rules
 
@@ -195,15 +196,15 @@ Prove that the live demo concept can work with real services:
 - [ ] Test with at least three short spoken prompts.
 - [ ] Record whether the text feels usable for a live presentation.
 
-### Spike Workstream 3: Image Generation From Context
+### Spike Workstream 3: Glyph Scene Generation From Context
 
-- [ ] From a stable phrase or generated paragraph, create one visual prompt.
-- [ ] Start an image/SVG/visual asset generation job immediately.
-- [ ] Measure time from context availability to job start.
-- [ ] Measure time from job start to usable asset.
-- [ ] Render the first ready asset on the same page.
-- [ ] Test whether simpler assets such as SVG/canvas placeholders are fast enough to bridge the gap while full image generation runs.
-- [ ] Record whether full image generation is fast enough for live timing or must be treated as delayed/background enhancement.
+- [ ] From a stable phrase or generated paragraph, create one visual cue or scene intent.
+- [ ] Start glyph scene config generation or local scene retargeting immediately.
+- [ ] Measure time from context availability to scene request start.
+- [ ] Measure time from scene request start to usable glyph scene.
+- [ ] Render the first ready glyph scene on the same page.
+- [ ] Test whether local fallback scenes are fast enough to cover the live path while optional image/SVG generation trails.
+- [ ] Record whether any image generation path is fast enough for live timing or must remain delayed/offline enhancement.
 
 ### Spike Acceptance Criteria
 
@@ -217,17 +218,17 @@ Prove that the live demo concept can work with real services:
 - [ ] The generated next paragraph does not re-generate or replace itself while it is visible.
 - [ ] The spike has a manual way to mark the generated script done before generating the next one.
 - [ ] The first generated text arrives fast enough to avoid an awkward pause in at least some normal test runs.
-- [ ] A visual generation job starts from live or generated context.
-- [ ] At least one generated or placeholder visual appears on screen.
-- [ ] Timing data is captured for speech-to-text, speech-to-script, and context-to-visual.
+- [ ] A glyph scene config request or local scene action starts from live or generated context.
+- [ ] At least one local glyph scene appears on screen.
+- [ ] Timing data is captured for speech-to-text, speech-to-script, and context-to-scene.
 
 ### Spike Decision
 
 After the spike, decide one of:
 
 - **Proceed:** latency is good enough to build the product plan.
-- **Proceed with UX adjustment:** text works, but the generated script or visuals need fallback behavior, pacing, or delayed reveal.
-- **Stop or rethink:** real LLM or visual latency is too slow for the core live presentation concept.
+- **Proceed with UX adjustment:** text works, but the generated script or glyph scenes need fallback behavior, pacing, or delayed reveal.
+- **Stop or rethink:** real LLM or scene latency is too slow for the core live presentation concept.
 
 ## Phase 0: Minimal Project Bootstrap
 
@@ -386,7 +387,7 @@ Turn the successful Realtime feasibility spike into the single-page, no-scroll t
 - [ ] The main display does not use grey trailing transcript text.
 - [ ] The page does not scroll.
 - [ ] The presenter overlay can be hidden without disrupting the main display.
-- [ ] App can still run in fixture mode for UI development without voice, LLM, or image generation services.
+- [ ] App can still run in fixture mode for UI development without voice or LLM services.
 
 ## MVP Slice: Real Speech + Real LLM + Phase 1 UI
 
@@ -421,42 +422,46 @@ Prove the core product loop with real services: spoken context enters the telepr
 - [ ] Provider failure path retries once and then allows manual regenerate.
 - [ ] No background process blocks text streaming.
 
-## Phase 2: Visual Generation Scripts
+## Phase 2: Glyph Scene Runtime
 
 ### Objective
 
-Create a scriptable asset generation path that accepts structured visual cue prompts and produces browser-loadable assets plus metadata.
+Create the local glyph scene runtime that accepts structured visual cues or scene intents and produces immediate canvas/Pretext-ready motion. This replaces runtime image generation as the primary live visual path.
 
-### 1. Asset Interface
+### 1. Scene Config Interface
 
 - [ ] Define a `VisualCue` input contract based on `PRD.md`.
-- [ ] Define an `AssetJob` output contract with job ID, cue ID, status, asset path, error message, and timestamps.
-- [ ] Define supported asset types:
-  - [ ] `svg`
-  - [ ] `image`
+- [ ] Define a `GlyphSceneConfig` contract with scene ID, cue ID, status, source phrase, target timing, palette, mood, creatures, force fields, speech mappings, reduced-motion behavior, error message, and timestamps.
+- [ ] Define supported scene/action types:
+  - [ ] `glyph-scene`
+  - [ ] `force-field`
   - [ ] `canvas-effect`
   - [ ] `pretext-effect`
-- [ ] Store generated asset metadata in a predictable format such as JSON.
+  - [ ] optional delayed `image`
+- [ ] Store generated scene metadata in a predictable format such as JSON.
 
-### 2. Local Generator Prototype
+### 2. Canvas Glyph Engine
 
-- [ ] Create a script that accepts a prompt and cue metadata.
-- [ ] Generate a simple SVG or placeholder image without requiring external services.
-- [ ] Write outputs to a predictable generated asset directory.
-- [ ] Return job metadata that the frontend can consume.
-- [ ] Add deterministic sample cues for development.
+- [ ] Build a framework-agnostic engine that owns `requestAnimationFrame`, canvas drawing, particles, velocities, glyph homes, force fields, resize handling, and reduced-motion behavior.
+- [ ] Use React only to mount the canvas and pass stable `sceneConfig` and `speechSignals` through refs/effects.
+- [ ] Do not keep per-frame particle state in React.
+- [ ] Preserve particle identity across scene changes; retarget existing particles instead of clearing the scene.
+- [ ] Add deterministic local scenes for development: forest, storm, dragon, product reveal, swarm, rain, fireflies, and abstract motion.
 
-### 3. Future Codex Exec Integration Point
+### 3. Local Scene Generator Prototype
 
-Do not build a Codex exec wrapper until there is a concrete command or image generation tool to wrap. For now, keep Codex exec as a documented future integration point behind the same asset job contract used by the local generator.
+- [ ] Create a local generator that accepts a cue or scene intent and returns a compact `GlyphSceneConfig`.
+- [ ] Generate scene rules, palettes, force fields, and timing metadata without requiring external image services.
+- [ ] Return scene metadata that the frontend can consume.
+- [ ] Add deterministic sample cues and scene configs for development.
 
-### 4. Frontend Asset Loading
+### 4. Frontend Scene Loading
 
-- [ ] Add an asset registry or asset job store.
-- [ ] Poll or subscribe to asset job status.
-- [ ] Load ready SVG/image assets from the local output path.
-- [ ] Render at least one generated asset in a simple visual layer.
-- [ ] Add fallback display when an asset fails or is unavailable.
+- [ ] Add a scene registry or scene status store.
+- [ ] Apply ready scene configs to the canvas glyph engine.
+- [ ] Render at least one generated/local glyph scene in a visual layer.
+- [ ] Add fallback display when a scene config fails or is unavailable.
+- [ ] Keep optional image/SVG assets behind the same status store as delayed enhancement only.
 
 ### 5. PretextJS Preparation
 
@@ -469,23 +474,24 @@ Do not build a Codex exec wrapper until there is a concrete command or image gen
 
 ### Outputs
 
-- Scriptable visual generation interface.
-- Local asset output directory with metadata.
-- Frontend can load and render at least one generated asset.
-- PretextJS spike for later generated visual/text interactions.
+- Scriptable glyph scene interface.
+- Local scene registry with metadata.
+- Frontend can load and render at least one generated/local glyph scene.
+- PretextJS spike for generated visual/text interactions.
 
 ### Validation
 
-- [ ] Running a script with a prompt creates a usable asset.
+- [ ] Running the local scene generator with a cue creates a usable scene config.
 - [ ] Generated metadata includes source phrase and intended timing.
-- [ ] Phase 3 can call the asset interface with a visual cue object.
-- [ ] Asset generation can fail without breaking the app.
+- [ ] Phase 3 can call the scene interface with a visual cue object.
+- [ ] Scene generation can fail without breaking the app.
+- [ ] The glyph engine can retarget scenes without resetting every particle.
 
-## Phase 3: LLM Script Generation and Asset Preloading
+## Phase 3: LLM Script Generation and Scene Preloading
 
 ### Objective
 
-Harden the real provider path from the MVP: generate the next paragraph and structured visual cues from live context, then start visual asset jobs in the background.
+Harden the real provider path from the MVP: generate the next paragraph and structured visual cues from live context, then prepare compact glyph scene configs or timed scene actions in the background.
 
 ### 1. Context Manager Extension
 
@@ -512,9 +518,9 @@ Harden the real provider path from the MVP: generate the next paragraph and stru
 
 - [ ] Request paragraph text first.
 - [ ] Enforce English-only generated script output.
-- [ ] Include lightweight structured visual cues in the same response.
+- [ ] Include lightweight structured visual cues or scene intents in the same response.
 - [ ] Avoid a second blocking parser call.
-- [ ] Validate visual cues before creating asset jobs.
+- [ ] Validate visual cues before creating scene configs or scene actions.
 - [ ] Use phrase match + paragraph index + optional word index for `targetTiming`.
 
 ### 4. Latency and Failure Behavior
@@ -527,13 +533,14 @@ Harden the real provider path from the MVP: generate the next paragraph and stru
 - [ ] Keep teleprompter streaming current text during provider delay or failure.
 - [ ] Let presenter manually regenerate from controls.
 
-### 5. Asset Preloading Handoff
+### 5. Scene Preloading Handoff
 
-- [ ] Convert validated visual cues into Phase 2 asset jobs.
-- [ ] Start visual generation as soon as a usable cue exists.
+- [ ] Convert validated visual cues into Phase 2 scene config requests or local scene actions.
+- [ ] Start scene preparation as soon as a usable cue exists.
 - [ ] Do not wait for the full paragraph if cues are available earlier.
-- [ ] Track asset states independently from paragraph generation.
-- [ ] Associate assets with generated paragraph IDs and target phrases.
+- [ ] Track scene states independently from paragraph generation.
+- [ ] Associate scenes/actions with generated paragraph IDs and target phrases.
+- [ ] Treat slower image/SVG generation as optional delayed enhancement, never as the live visual dependency.
 
 ### 6. Script Queue
 
@@ -560,21 +567,21 @@ Harden the real provider path from the MVP: generate the next paragraph and stru
 - Real LLM generation loop with fixture fallback for development.
 - Generated paragraph queue.
 - Structured cue extraction from the same provider response.
-- Background asset preloading.
+- Background scene config preloading.
 
 ### Validation
 
 - [ ] One finalized sentence produces a generated paragraph.
 - [ ] The paragraph appears before the presenter needs it in normal conditions.
-- [ ] At least one asset job starts from the generated paragraph.
+- [ ] At least one scene config request or local scene action starts from the generated paragraph.
 - [ ] LLM failure does not stall the visible teleprompter.
-- [ ] Asset generation is asynchronous and non-blocking.
+- [ ] Scene preparation is asynchronous and non-blocking.
 
 ## Phase 4: Voice-to-Action Integration
 
 ### Objective
 
-Productionize the Realtime speech path proven in Phase 0.5 and combine text streaming, LLM generation, generated script queueing, and visual asset rendering into one live presentation loop.
+Productionize the Realtime speech path proven in Phase 0.5 and combine text streaming, LLM generation, generated script queueing, and glyph scene rendering into one live presentation loop.
 
 ### 1. Speech Capture
 
@@ -608,18 +615,19 @@ Productionize the Realtime speech path proven in Phase 0.5 and combine text stre
 
 ### 4. Visual Timing
 
-- [ ] Accept `create_visual_cues`, `start_asset_generation`, and `trigger_visual_at_phrase`-style tool/function calls or equivalent structured outputs.
+- [ ] Accept `create_visual_cues`, `set_glyph_scene_config`, `trigger_force_field`, and `trigger_visual_at_phrase`-style tool/function calls or equivalent structured outputs.
 - [ ] Match spoken or queued generated phrases against visual cue `targetTiming`.
-- [ ] Trigger ready assets when the target phrase or word index is reached.
-- [ ] If assets are not ready in time, either skip or show a simple fallback.
-- [ ] Start visual jobs early when paragraph text or cue data becomes usable.
-- [ ] Use paragraph pacing or light pauses in generated text to create generation lead time.
+- [ ] Trigger ready scene actions when the target phrase or word index is reached.
+- [ ] If a generated scene config is not ready in time, use a local fallback scene or skip the effect.
+- [ ] Start scene config generation or local scene retargeting early when paragraph text or cue data becomes usable.
+- [ ] Use paragraph pacing or light pauses in generated text to create lead time for richer optional visuals.
 
 ### 5. Failure and Recovery
 
 - [ ] If speech recognition fails, keep typed input available.
 - [ ] If LLM generation fails, continue displaying live speech and allow regenerate.
-- [ ] If visual generation fails, continue text rendering and mark asset failed.
+- [ ] If scene config generation fails, continue text rendering and keep or switch to a local fallback scene.
+- [ ] If optional delayed image/SVG generation fails, continue text rendering and mark the asset failed.
 - [ ] If microphone permission is denied, show the manual input harness.
 
 ### Outputs
@@ -627,25 +635,25 @@ Productionize the Realtime speech path proven in Phase 0.5 and combine text stre
 - Speech-first demo loop.
 - Live partial speech on the teleprompter.
 - Generated presenter script.
-- Background visual generation and timed rendering.
+- Background scene config generation and timed glyph rendering.
 
 ### Validation
 
 - [ ] Presenter can begin by speaking without typing.
 - [ ] Spoken text appears in near real time.
 - [ ] A next paragraph is generated from spoken context.
-- [ ] Visual generation begins before the relevant generated sentence is spoken.
-- [ ] The audience-facing page continues updating if speech, LLM, or one asset job fails.
+- [ ] Glyph scene preparation begins before the relevant generated sentence is spoken.
+- [ ] The audience-facing page continues updating if speech, LLM, one scene action, or one optional asset job fails.
 
 ## Rendering Enhancements Track
 
 ### Objective
 
-Layer richer generated visual/text interactions onto the stable DOM teleprompter without compromising readability.
+Layer richer PretextJS and experimental HTML-in-Canvas interactions onto the Phase 2 glyph scene runtime without compromising readability.
 
 ### Subtasks
 
-- [ ] Add a canvas visual layer above or below DOM text.
+- [ ] Extend the Phase 2 canvas glyph layer above or below DOM text.
 - [ ] Reuse the PretextJS spike from Phase 2 when implementing per-letter home positions and physics effects.
 - [ ] Implement rendering capability detection:
   - [ ] Canvas support.
@@ -663,6 +671,7 @@ Layer richer generated visual/text interactions onto the stable DOM teleprompter
 - [ ] Use PretextJS for effects requiring per-letter home positions.
 - [ ] Keep HTML-in-Canvas behind feature detection and experimental flags.
 - [ ] Synchronize canvas CSS size, backing size, and device pixel ratio.
+- [ ] Keep optional generated image/SVG assets as delayed enhancement only.
 
 ### Validation
 
@@ -740,17 +749,16 @@ Cached input pricing should be leveraged aggressively since the rolling context 
 
 ## Suggested Build Order
 
-0. Spike mode: fast proof of Realtime API, WebRTC text display, and context-to-image latency.
+0. Spike mode: fast proof of Realtime API, WebRTC text display, and context-to-glyph-scene latency.
 1. Phase 0 minimal project bootstrap.
 2. Phase 0.5 Realtime LLM feasibility spike with real speech and real generation, refined from spike learnings.
 3. Phase 1 DOM teleprompter using the real transcription stream, with manual fixture fallback.
 4. MVP slice with real speech, real LLM generation, presenter overlay, and latency logging.
-5. Phase 3 provider hardening, script queue, stale-response handling, and failure recovery.
-6. Phase 2 local visual generation interface.
-7. Phase 3 asset preloading handoff.
-8. Rendering enhancements with canvas, PretextJS, and optional HTML-in-Canvas.
-9. Separate presenter and audience views. This can run in parallel with rendering enhancements once MVP state boundaries are clear.
-10. Persistence beyond in-memory state, only after MVP usage shows what needs to be retained.
+5. Phase 2 glyph scene runtime and local scene config interface.
+6. Phase 3 provider hardening, script queue, stale-response handling, scene preloading, and failure recovery.
+7. Rendering enhancements with PretextJS and optional HTML-in-Canvas.
+8. Separate presenter and audience views. This can run in parallel with rendering enhancements once MVP state boundaries are clear.
+9. Persistence beyond in-memory state, only after MVP usage shows what needs to be retained.
 
 ## First Milestone
 
@@ -766,11 +774,11 @@ The first useful milestone is:
 - A manual done-reading/generate-next control and last-two-words speech match gate subsequent script generation.
 - Diverging from the generated script can intentionally trigger regeneration from the new topic/context.
 - A global presentation brief and recent conversation context improve script relevance.
-- A visual generation job starts from received context or generated paragraph text.
-- Timing logs show speech partials, sentence finalization, LLM start, first generated text, usable paragraph completion, visual job start, and visual readiness.
+- A glyph scene config request or local scene action starts from received context or generated paragraph text.
+- Timing logs show speech partials, sentence finalization, LLM start, first generated text, usable paragraph completion, scene request start, and scene readiness.
 - Target latency is 1-2 seconds to first generated text and 3-5 seconds to a usable paragraph under normal conditions.
 - The text stream continues if generation is late or fails.
 - The UI can be minimal: debug transcript, generated script preview, and latency measurements.
-- No dependency on polished image integration, PretextJS, or HTML-in-Canvas.
+- No dependency on polished image integration, advanced PretextJS effects, or HTML-in-Canvas.
 
 This milestone proves or disproves the core product bet before investing in polished UI, clean architecture, or advanced visuals.

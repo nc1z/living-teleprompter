@@ -2,13 +2,13 @@
 
 ## Source references
 
-- `IDEA.md`: Defines the phased product concept: a single-page streaming teleprompter, image generation scripts, LLM-generated next-paragraph prompting, and speech as the final entrypoint.
+- `IDEA.md`: Defines the phased product concept: a single-page streaming teleprompter, generated visual systems, LLM-generated next-paragraph prompting, and speech as the final entrypoint.
 - `REPORT.md`: Provides the technical foundation for interactive text rendering with PretextJS, including per-character layout, canvas rendering, physics-based motion, accessibility considerations, and the dragon-style animation model.
 - `REPORT-2.md`: Evaluates HTML-in-Canvas as an experimental way to combine accessible DOM text with canvas/WebGL/WebGPU effects, shaders, pixel manipulation, and worker-based rendering.
 
 ## Product summary
 
-Living Teleprompter is a single-page presentation surface for unplanned demos. A speaker begins by saying a sentence. The app streams that sentence into a focused teleprompter display, uses the live context to generate the next paragraph for the speaker, and pre-generates visual assets that can appear as the presentation evolves.
+Living Teleprompter is a single-page presentation surface for unplanned demos. A speaker begins by saying a sentence. The app streams that sentence into a focused teleprompter display, uses the live context to generate the next paragraph for the speaker, and prepares lightweight glyph scene configs that can animate as the presentation evolves.
 
 The audience sees a dynamic landing page that changes while the speaker talks. The presenter sees or reads a continuously generated script. The system should feel like a live, improvised presentation where text, visuals, and generated prompts stay synchronized.
 
@@ -21,16 +21,16 @@ Living Teleprompter addresses this by converting speech into a real-time present
 1. Current speech becomes beautiful streamed text.
 2. The LLM uses the streamed sentence as context.
 3. The LLM generates the next paragraph for the presenter.
-4. The system starts preparing relevant images, SVGs, or animated visual elements before the presenter reaches the corresponding line.
+4. The system starts preparing relevant glyph scenes, force fields, and animation cues before the presenter reaches the corresponding line.
 5. The audience sees a page that stays visually alive throughout the talk.
 
 ## Goals
 
 - Build a single-page, no-scroll teleprompter display that streams text in real time.
-- Highlight the active/focused text while greying out older text.
+- Keep the audience display stable and slide-like, with only the most important finalized phrase or keyword visible.
 - Preserve enough streamed text context for LLM generation.
 - Generate the next paragraph of presenter script from the live context.
-- Start background visual generation jobs based on upcoming generated script.
+- Start background glyph scene config generation based on upcoming generated script.
 - Support PretextJS-compatible visual effects inspired by the dragon animation described in `REPORT.md`.
 - Use HTML-in-Canvas ideas from `REPORT-2.md` as a progressive enhancement when browser support allows it.
 - Integrate speech as the final primary entrypoint.
@@ -56,12 +56,12 @@ Living Teleprompter addresses this by converting speech into a real-time present
 1. The presenter opens a single-page teleprompter.
 2. The presenter starts speaking: "Today I will be demoing XXX. We can now do interactive demos without preparing for it."
 3. The spoken sentence streams into the page as large readable text.
-4. Older words fade or grey out while the active phrase remains visually focused.
+4. The main display remains stable and uncluttered while live transcript details stay in a low-emphasis footer or debug line.
 5. The LLM receives the sentence and current context.
 6. The LLM generates at least the next paragraph of script.
 7. The system identifies visual opportunities in that paragraph.
-8. Background jobs generate images, SVGs, or animation-ready assets.
-9. As the presenter reads the generated paragraph, the page reveals relevant dynamic visuals.
+8. Background jobs generate compact glyph scene configs, force-field changes, and timing cues.
+9. As the presenter reads the generated paragraph, the canvas runtime reveals relevant dynamic glyph visuals.
 10. The loop continues from speech to context to script to visuals.
 
 ## Product Views
@@ -84,78 +84,80 @@ Create the first single-page experience: streamed text in, no-scroll teleprompte
 - Render one full-screen page with no document scrolling.
 - Accept streamed text input as sentences, words, or tokens.
 - Display text in a teleprompter style optimized for reading from a distance.
-- Grey out older text while keeping the current text visually focused.
+- Keep the current finalized display phrase visually focused without showing a long grey transcript trail.
 - Keep the active text centered or visually dominant.
 - Maintain a short rolling context buffer.
 - Support manual text input for local testing before speech integration exists.
 - Provide deterministic demo data so Phase 1 can be tested without APIs.
 - Prefer regular DOM text rendering for the first implementation so the page remains accessible, debuggable, and compatible with stable browsers.
-- Keep Phase 1 visually focused on the white teleprompter text experience: grey previous words, bold active words, no generated image/text physics required.
+- Keep Phase 1 visually focused on the white teleprompter text experience: stable large words, selective emphasis, no generated image/text physics required.
 - Include a presenter overlay that can show queued generated script separately from the large audience-facing teleprompter words.
 
 ### Acceptance criteria
 
 - A user can stream a sentence into the app and see it appear progressively.
 - The page does not scroll.
-- Older streamed text is visually de-emphasized.
+- The main display stays stable and does not accumulate grey trailing transcript text.
 - The current streamed phrase is easy to identify.
-- The app can run locally without voice, LLM, or image generation services.
+- The app can run locally without voice or LLM services.
 - The presenter overlay can be shown or hidden without disrupting the teleprompter display.
 
-## Phase 2: Visual Generation Scripts
+## Phase 2: Glyph Scene Runtime
 
 ### Objective
 
-Create functions or scripts that can generate visual assets, including SVGs or assets compatible with PretextJS-style text and physics effects.
+Create the local canvas/Pretext-ready glyph scene runtime that can render fast, speech-driven visuals from compact scene configs. Runtime visuals should be deterministic, local, and animated in milliseconds; image/SVG generation is optional delayed enhancement, not the live path.
 
 ### Requirements
 
-- Provide a scriptable interface for generating visual prompts from text.
-- Support calling Codex exec or another local command runner to create assets.
-- Support output formats suitable for the frontend, including SVG and browser-renderable image assets.
-- Store generated assets in a predictable local directory.
-- Produce metadata that maps each asset to a sentence, phrase, or upcoming paragraph.
+- Define a `GlyphSceneConfig` contract for palettes, creatures, force fields, scene mood, speech mappings, timing cues, and reduced-motion behavior.
+- Build a framework-agnostic canvas engine that owns `requestAnimationFrame`, particles, glyph homes, velocities, force fields, resize handling, and drawing.
+- Keep React responsible for mounting the canvas and passing stable `sceneConfig` and `speechSignals`; do not store per-frame particle state in React.
+- Support immediate local fallback scenes such as forest, storm, dragon, product reveal, swarm, rain, fireflies, and abstract motion.
+- Preserve particle identity across scene and text changes; retarget glyphs instead of clearing the scene.
+- Use AI-generated configs or local deterministic fixtures to select palettes, mood, and scene composition.
 - Use `REPORT.md` as the technical reference for PretextJS-compatible interactive text effects.
-- Define `Codex exec` as a local background command/script runner for prototyping generated assets, not as a required production API.
-- Accept structured visual cue prompts from Phase 3 and convert them into asset generation jobs.
+- Use `ANIMATE-HOW-TO.md` as the primary reference for fluid glyph creatures, persistent particles, force fields, and scene controllers.
+- Treat Codex exec and image/SVG generation as offline or delayed tooling behind the same scene-config boundary, not as the live visual runtime.
+- Accept structured visual cues from Phase 3 and convert them into `GlyphSceneConfig` updates or timed scene actions.
 
 ### Acceptance criteria
 
-- A developer can run a script with a prompt and receive a usable visual asset.
-- Generated asset metadata includes the source phrase and intended timing.
-- The frontend can load at least one generated asset from the local output path.
-- The generated asset format does not block later PretextJS or canvas integration.
-- Phase 3 can call the Phase 2 asset interface with a visual cue object and receive a generation job ID or asset status.
+- A developer can provide a scene config and see a usable glyph scene render immediately.
+- The canvas engine can switch or retarget scenes without resetting every particle.
+- Generated scene metadata includes source phrase and intended timing.
+- The frontend can render at least one local glyph scene without external image generation.
+- Phase 3 can call the Phase 2 scene interface with a visual cue object and receive a scene config, scene status, or timed action.
 
-## Phase 3: LLM Script Generation and Asset Preloading
+## Phase 3: LLM Script Generation and Scene Preloading
 
 ### Objective
 
-Connect streamed text context to a provider that generates the next paragraph and starts background visual generation.
+Connect streamed text context to a provider that generates the next paragraph and prepares compact glyph scene configs or timed scene actions.
 
 ### Requirements
 
 - Store streamed text context locally in memory, local storage, or a small persistence layer.
 - Send a speed-optimized context window to an LLM provider: current finalized sentence, last 3-5 finalized sentences, and an optional cached session summary only if one already exists.
 - Return a teleprompt script of at least the next paragraph.
-- Use one streaming LLM call that prioritizes paragraph text first and includes lightweight structured visual cues in the same response.
+- Use one streaming LLM call that prioritizes paragraph text first and includes lightweight structured visual cues or scene intents in the same response.
 - Identify visual cues from the generated paragraph as structured fields, not through a second blocking parser call.
-- Start background image or SVG generation jobs for those cues.
+- Start glyph scene config generation or local scene retargeting for those cues.
 - Track generation state: pending, generating, ready, failed.
 - Make generated script available to the teleprompter before the presenter needs it.
 - Show generation delay state only behind a feature/debug flag. When enabled, the presenter overlay may show a bouncing `...`; otherwise generation state stays hidden.
 - If generation is slow or fails, keep the teleprompter running with current spoken text. Retry once automatically, then allow manual regenerate from presenter controls.
-- Start visual generation as soon as a usable generated paragraph or cue is available. The generated paragraph may include light pacing, pauses, or expansion to create lead time for visuals.
+- Start glyph scene preparation as soon as a usable generated paragraph or cue is available. The generated paragraph may include light pacing, pauses, or expansion to create lead time for richer visuals.
 
 ### Acceptance criteria
 
 - Given one spoken or typed context sentence, the system generates a next paragraph.
 - The generated paragraph can be displayed in the teleprompter stream.
-- At least one visual generation job starts from the generated paragraph.
-- Asset generation happens asynchronously and does not block text streaming.
+- At least one glyph scene config or timed scene action starts from the generated paragraph.
+- Scene preparation happens asynchronously and does not block text streaming.
 - The next paragraph starts streaming within 1-2 seconds after a sentence finalizes under normal conditions.
 - A first usable generated paragraph completes within 3-5 seconds under normal conditions.
-- Visual generation may trail text generation and should target readiness within 5-15 seconds when possible.
+- Local glyph scene readiness should target milliseconds to 1 second for fallback scenes. Optional high-quality image generation may trail text generation and should be treated as delayed/offline enhancement.
 - LLM failure does not stall the visible teleprompter.
 
 ## Phase 4: Voice-to-Action Integration
@@ -171,8 +173,8 @@ Make speech the primary entrypoint and combine the previous phases into one loop
 - Send recognized text to the LLM provider.
 - Receive generated next-paragraph script.
 - Queue generated script for the presenter.
-- Trigger background visual generation.
-- Render generated visuals at the appropriate moment during the presentation.
+- Trigger glyph scene changes, force fields, and optional delayed visual generation.
+- Render generated glyph visuals at the appropriate moment during the presentation.
 - Provide clear fallback behavior if speech, LLM, or visual generation fails.
 
 ### Acceptance criteria
@@ -180,8 +182,8 @@ Make speech the primary entrypoint and combine the previous phases into one loop
 - The presenter can start speaking without typing.
 - Spoken text appears on the page in near real time.
 - The system generates a next paragraph from the spoken context.
-- Visual generation begins before the relevant generated sentence is spoken.
-- The audience-facing page continues to update even if one background asset fails.
+- Glyph scene preparation begins before the relevant generated sentence is spoken.
+- The audience-facing page continues to update even if one scene action or optional background asset fails.
 
 ## Presenter Controls
 
@@ -216,10 +218,10 @@ These controls are for live testing and presenter recovery. They should not appe
 The PretextJS dragon demo in `REPORT.md` should guide the technical ambition, but dragons are only one example. The broader goal is generated visual/text interaction:
 
 - Text can behave like particles with home positions.
-- Generated SVGs or character-based objects can move through text.
+- Generated glyph creatures, force fields, or character-based objects can move through text.
 - Letters can temporarily react to animated objects and return to place.
-- The app can use generated visual motifs such as unicorns, forests, product diagrams, or abstract motion elements.
-- Phase 1 should not include these advanced interactions. Phase 1 users should see the clean white teleprompter experience first; generated image/text physics belongs to later phases.
+- The app can use generated visual motifs such as unicorns, forests, product reveals, swarms, rain, fireflies, or abstract motion elements.
+- Phase 1 should not include these advanced interactions. Phase 1 users should see the clean white teleprompter experience first; generated glyph/text physics belongs to later phases.
 
 ### HTML-in-Canvas opportunity
 
@@ -238,9 +240,10 @@ This should not be required for the MVP because the API is experimental and may 
 The product should use a layered rendering strategy rather than betting on one technique too early:
 
 1. **Baseline DOM teleprompter:** Render the large focused words as normal HTML. This is the Phase 1 default because it is accessible, stable, easy to style, and fast enough for streaming text.
-2. **Canvas visual layer:** Render generated images, SVG-inspired motion, particles, and PretextJS text physics above or below the DOM text when advanced effects are needed.
+2. **Canvas glyph scene layer:** Render local glyph particles, creatures, force fields, speech-reactive effects, and PretextJS text physics above or below the DOM text when advanced effects are needed.
 3. **PretextJS text-physics mode:** Use PretextJS when individual letters need measured positions, home coordinates, and physics interactions.
-4. **HTML-in-Canvas enhancement:** When supported, capture live DOM text into canvas/WebGL textures to apply fluid shader effects while preserving DOM semantics.
+4. **Optional image/SVG layer:** Use slower generated images or SVGs only as delayed/offline enhancement, not the live visual dependency.
+5. **HTML-in-Canvas enhancement:** When supported, capture live DOM text into canvas/WebGL textures to apply fluid shader effects while preserving DOM semantics.
 
 The implementation should choose the simplest layer that satisfies the current effect. Phase 1 should not require PretextJS or HTML-in-Canvas unless a specific animation demands it.
 
@@ -248,7 +251,7 @@ The implementation should choose the simplest layer that satisfies the current e
 
 - React + Vite + TypeScript for the single-page app.
 - DOM-first rendering for the Phase 1 teleprompter.
-- PretextJS is required for Phase 2+ advanced text physics and generated image/text interaction, but not required for the Phase 1 MVP.
+- PretextJS is required for Phase 2+ advanced text physics and generated glyph/text interaction, but not required for the Phase 1 MVP.
 - Canvas/WebGL layers are introduced when visual effects need them.
 - HTML-in-Canvas remains an experimental progressive enhancement behind feature detection.
 
@@ -260,8 +263,9 @@ The implementation should choose the simplest layer that satisfies the current e
 - Teleprompter renderer.
 - Streaming text state.
 - Focus and history display.
-- Visual layer for generated assets.
-- Optional PretextJS/canvas layer for physics text effects.
+- Canvas glyph scene layer.
+- Optional generated image/SVG layer for delayed enhancement.
+- PretextJS/canvas layer for physics text effects.
 - Optional HTML-in-Canvas/WebGL layer for experimental shader effects.
 
 ### Context manager
@@ -274,15 +278,21 @@ The implementation should choose the simplest layer that satisfies the current e
 ### Provider layer
 
 - Abstracts LLM calls.
-- Supports OpenAI voice-to-action APIs or Codex-driven workflows.
+- Supports OpenAI Realtime/voice-to-action APIs and future provider changes.
 - Supports future provider changes without rewriting the UI.
 
-### Asset generation worker
+### Glyph scene runtime
 
-- Accepts visual prompts.
-- Calls local scripts, Codex exec, image APIs, or SVG generators.
-- Writes assets and metadata.
-- Reports readiness back to the frontend.
+- Accepts visual cues, scene intents, and speech signals.
+- Builds or loads glyph scene configs.
+- Retargets persistent particles and force fields.
+- Reports scene readiness and timing metadata back to the frontend.
+
+### Optional asset generation worker
+
+- Runs slower image/SVG generation only when it can trail the live presentation or be prepared offline.
+- Writes optional assets and metadata.
+- Never blocks text streaming or the local glyph scene runtime.
 
 ### Rendering capability detector
 
@@ -314,9 +324,10 @@ The implementation should choose the simplest layer that satisfies the current e
 - `phrase`
 - `prompt`
 - `targetTiming`: phrase match + paragraph index + optional word index. This is not a wall-clock timestamp by default.
-- `assetType`: `svg`, `image`, `canvas-effect`, or `pretext-effect`
+- `sceneType`: `glyph-scene`, `force-field`, `canvas-effect`, `pretext-effect`, or optional `image`
 - `status`: `pending`, `generating`, `ready`, or `failed`
-- `assetPath`
+- `sceneConfig`
+- `assetPath` for optional delayed image/SVG assets only
 
 ### Rendering capability
 
@@ -333,8 +344,8 @@ The implementation should choose the simplest layer that satisfies the current e
 - Active text is readable at presentation distance.
 - Generated next paragraph is available before the presenter finishes the current thought.
 - The next paragraph starts streaming within 1-2 seconds after sentence finalization and completes a usable draft within 3-5 seconds under normal conditions.
-- Visual jobs can run in the background without disrupting text rendering.
-- Visual jobs can begin before the presenter reaches the relevant generated sentence.
+- Glyph scene config generation can run in the background without disrupting text rendering.
+- Glyph scene preparation can begin before the presenter reaches the relevant generated sentence.
 - Advanced text effects maintain smooth animation on a typical laptop.
 - The app can complete a full demo loop from speech to text to generated script to visual output.
 - Experimental rendering enhancements degrade cleanly to the baseline DOM teleprompter.
@@ -344,16 +355,16 @@ The implementation should choose the simplest layer that satisfies the current e
 - Voice recognition latency may make the script feel late.
 - LLM generation may produce paragraphs that do not match the speaker's intent.
 - LLM generation may fail or exceed the desired latency budget; the teleprompter must continue and presenter controls must allow recovery.
-- Image generation may be too slow for live timing.
+- Image generation is too slow for the live visual path and should be treated as delayed/offline enhancement unless future measurements prove otherwise.
 - Canvas-heavy effects may reduce readability if overused.
 - HTML-in-Canvas is experimental, browser-limited, and may require flags, so it cannot be a hard dependency.
 - Shader or pixel-processing effects may introduce device pixel ratio, coordinate sync, and transform alignment bugs.
-- Generated visuals may need moderation, caching, and fallback states.
+- Generated scene configs and optional delayed visuals may need moderation, caching, and fallback states.
 - Provider APIs and model capabilities may change over time.
 
 ## Open Questions
 
-- Should visual assets be generated only from LLM-produced script, or also from the speaker's live words?
+- Should glyph scene configs be generated only from LLM-produced script, or also from the speaker's live words?
 - Where should session data persist: memory, browser storage, local files, or a lightweight database?
 - When should HTML-in-Canvas become part of the public demo path instead of an experimental mode?
 - Which effects are worth shader-based rendering versus simpler CSS/canvas overlays?
@@ -364,9 +375,9 @@ The MVP is Phase 1 plus a narrow slice of Phase 3:
 
 - A single no-scroll page.
 - Manual typed streaming input.
-- Focused teleprompter rendering with greyed-out history.
+- Focused teleprompter rendering with stable slide-like display text.
 - Local context buffer.
-- Mock or real LLM call that generates the next paragraph.
+- Real LLM call that generates the next paragraph for product validation, with fixtures only for local UI development.
 - Generated paragraph appears in the teleprompter queue.
 - Advanced PretextJS and HTML-in-Canvas effects are excluded from the MVP unless implemented as optional demos.
 

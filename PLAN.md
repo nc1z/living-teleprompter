@@ -303,11 +303,11 @@ Prove the core technical bet before polishing the UI: live speech must become vi
 
 ### Validation
 
-- [ ] Spoken words appear as text while the presenter is still speaking.
+- [x] Spoken words appear as text while the presenter is still speaking.
 - [ ] First generated script text appears within 1-2 seconds after a stable phrase or sentence finalizes under normal conditions.
 - [ ] A usable generated paragraph appears within 3-5 seconds under normal conditions.
-- [ ] If generation is late or fails, transcription continues streaming.
-- [ ] The spike uses a real provider, not a mock, for the pass/fail decision.
+- [x] If generation is late or fails, transcription continues streaming.
+- [x] The spike uses a real provider, not a mock, for the pass/fail decision.
 
 Live validation requires running the MVP server with `OPENAI_API_KEY` and testing microphone input in the browser.
 
@@ -319,60 +319,60 @@ Turn the successful Realtime feasibility spike into the single-page, no-scroll t
 
 ### 1. Page Shell and Layout
 
-- [ ] Create a full-viewport route or app shell.
-- [ ] Disable document scrolling.
-- [ ] Use a white background.
-- [ ] Reserve the main canvas of the page for large teleprompter words only.
-- [ ] Add responsive typography suitable for presentation distance.
-- [ ] Keep the active phrase horizontally centered and in a stable vertical reading band near the middle of the viewport.
-- [ ] Ensure text never overflows incoherently on desktop or mobile.
+- [x] Create a full-viewport route or app shell.
+- [x] Disable document scrolling.
+- [x] Use a white background.
+- [x] Reserve the main canvas of the page for large teleprompter words only.
+- [x] Add responsive typography suitable for presentation distance.
+- [x] Keep the active phrase horizontally centered and in a stable vertical reading band near the middle of the viewport.
+- [x] Ensure text never overflows incoherently on desktop or mobile.
 
 ### 2. Stream State
 
-- [ ] Implement stream chunk state with `id`, `text`, `timestamp`, `source`, and `status`.
-- [ ] Support `typed`, `speech`, and `generated` as source values even if only `typed` is active in Phase 1.
-- [ ] Track partial and final chunks.
-- [ ] Maintain a simple in-memory array of finalized chunks as the Phase 1 context source.
-- [ ] Add helpers to finalize a sentence and append it to context.
+- [x] Implement stream chunk state with `id`, `text`, `timestamp`, `source`, and `status`.
+- [x] Support `typed`, `speech`, and `generated` as source values even if only `typed` is active in Phase 1.
+- [x] Track partial and final chunks.
+- [x] Maintain a simple in-memory array of finalized chunks as the Phase 1 context source.
+- [x] Add helpers to finalize a sentence and append it to context.
 
 ### 3. Manual Input Harness
 
-- [ ] Add a local-only manual input mode for typing a sentence.
-- [ ] Add a deterministic demo stream that emits words or tokens over time.
-- [ ] Support starting, pausing, resuming, and clearing the demo stream.
-- [ ] Keep input controls outside the main audience text area, preferably in the presenter overlay.
-- [ ] Keep manual input as a development fallback; real speech remains the product-critical path.
+- [x] Add a local-only manual input mode for typing a sentence.
+- [x] Add a deterministic demo stream that emits words or tokens over time.
+- [x] Support starting, pausing, resuming, and clearing the demo stream.
+- [x] Keep input controls outside the main audience text area, preferably in the presenter overlay.
+- [x] Keep manual input as a development fallback; real speech remains the product-critical path.
 
 ### 4. Teleprompter Renderer
 
-- [ ] Render the audience-facing display as regular DOM text.
-- [ ] Do not render raw partial transcript in the big display.
-- [ ] Keep partial Realtime transcript in a small low-emphasis footer/debug line.
-- [ ] Convert finalized speech into a stable slide-like headline, short phrase, or powerful keyword.
-- [ ] Persist the last rendered big display until the next finalized display replaces it.
-- [ ] Use model-assisted display extraction to choose the display phrase and emphasized word.
-- [ ] Highlight only selected important words, not the full display text.
-- [ ] Ensure display extraction output is English-only.
-- [ ] Avoid grey trailing text; keep the main display clean and uncluttered.
-- [ ] Avoid layout shifts as partial transcript arrives.
-- [ ] Add reduced-motion-safe transitions.
+- [x] Render the audience-facing display as regular DOM text.
+- [x] Do not render raw partial transcript in the big display.
+- [x] Keep partial Realtime transcript in a small low-emphasis footer/debug line.
+- [x] Convert finalized speech into a stable slide-like headline, short phrase, or powerful keyword.
+- [x] Persist the last rendered big display until the next finalized display replaces it.
+- [x] Use model-assisted display extraction to choose the display phrase and emphasized word.
+- [x] Highlight only selected important words, not the full display text.
+- [x] Ensure display extraction output is English-only.
+- [x] Avoid grey trailing text; keep the main display clean and uncluttered.
+- [x] Avoid layout shifts as partial transcript arrives.
+- [x] Add reduced-motion-safe transitions.
 
 ### 5. Presenter Overlay
 
-- [ ] Add a subtle overlay or panel for presenter-only information.
-- [ ] Show queued generated script separately from the main teleprompter words.
-- [ ] Make the generated next script panel large enough to read comfortably during live testing.
-- [ ] Add controls:
-  - [ ] Pause/resume live streaming.
-  - [ ] Skip current generated paragraph.
-  - [ ] Regenerate next paragraph.
-  - [ ] Done reading / generate next.
-  - [ ] Accept/advance the current generated paragraph in typed MVP mode.
-  - [ ] Clear session.
-  - [ ] Toggle overlay visibility.
-- [ ] Use compact icon controls for start/stop microphone where possible.
-- [ ] Add a feature/debug flag for showing generation delay state.
-- [ ] When the debug flag is enabled, show a bouncing `...` while generation is pending.
+- [x] Add a subtle overlay or panel for presenter-only information.
+- [x] Show queued generated script separately from the main teleprompter words.
+- [x] Make the generated next script panel large enough to read comfortably during live testing.
+- [x] Add controls:
+  - [x] Pause/resume live streaming.
+  - [x] Skip current generated paragraph.
+  - [x] Regenerate next paragraph.
+  - [x] Done reading / generate next.
+  - [x] Accept/advance the current generated paragraph in typed MVP mode.
+  - [x] Clear session.
+  - [x] Toggle overlay visibility.
+- [x] Use compact icon controls for start/stop microphone where possible.
+- [x] Add a feature/debug flag for showing generation delay state.
+- [x] When the debug flag is enabled, show a bouncing `...` while generation is pending.
 
 ### Outputs
 
@@ -382,14 +382,14 @@ Turn the successful Realtime feasibility spike into the single-page, no-scroll t
 
 ### Validation
 
-- [ ] A typed or demo sentence streams progressively into the page.
-- [ ] Partial transcript stays out of the big display.
-- [ ] Finalized speech becomes stable slide-like display text.
-- [ ] Important words can be emphasized individually.
-- [ ] The main display does not use grey trailing transcript text.
-- [ ] The page does not scroll.
-- [ ] The presenter overlay can be hidden without disrupting the main display.
-- [ ] App can still run in fixture mode for UI development without voice or LLM services.
+- [x] A typed or demo sentence streams progressively into the page.
+- [x] Partial transcript stays out of the big display.
+- [x] Finalized speech becomes stable slide-like display text.
+- [x] Important words can be emphasized individually.
+- [x] The main display does not use grey trailing transcript text.
+- [x] The page does not scroll.
+- [x] The presenter overlay can be hidden without disrupting the main display.
+- [x] App can still run in fixture mode for UI development without voice or LLM services.
 
 ## MVP Slice: Real Speech + Real LLM + Phase 1 UI
 

@@ -1,17 +1,26 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { clientConfig } from './teleprompter/config'
 import { phaseZeroFixture } from './teleprompter/fixtures'
-import type { GeneratedParagraph, StreamChunk, VisualCue } from './teleprompter/types'
+import type { GeneratedParagraph, StreamChunk, StreamSource, VisualCue } from './teleprompter/types'
 
 type PlanningState = 'idle' | 'generating' | 'ready' | 'failed'
 type ConnectionState = 'idle' | 'connecting' | 'listening' | 'error'
+type DemoState = 'idle' | 'streaming' | 'paused'
+type DisplayTone = 'green' | 'blue' | 'red' | 'gold'
 
 type TimingEntry = {
   id: number
   label: string
   atMs: number
   detail?: string
+}
+
+type AudienceDisplay = {
+  text: string
+  emphasis: string[]
+  tone: DisplayTone
+  sourceChunkId?: string
 }
 
 type ServerEvent = {
@@ -43,6 +52,38 @@ type RealtimeHandles = {
 }
 
 const visualCueMarker = '---VISUAL_CUES_JSON---'
+const demoSentence =
+  'This living teleprompter turns improvisation into a clean stage moment while the next idea waits off screen.'
+const stopWords = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'by',
+  'can',
+  'for',
+  'from',
+  'i',
+  'in',
+  'into',
+  'is',
+  'it',
+  'me',
+  'my',
+  'of',
+  'on',
+  'or',
+  'so',
+  'the',
+  'this',
+  'to',
+  'we',
+  'while',
+  'with',
+])
 
 function eventResponseId(event: ServerEvent) {
   return event.response?.id || event.response_id || ''
@@ -77,11 +118,107 @@ function splitPlanningResponse(text: string) {
   }
 }
 
+function stripJsonFence(raw: string) {
+  return raw.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()
+}
+
+function normalizeDisplayWord(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '')
+}
+
+function normalizeSpaces(value: string) {
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+function isProbablyEnglish(value: string) {
+  const text = normalizeSpaces(value)
+
+  if (!text) return false
+
+  const latinChars = text.match(/[a-z]/gi)?.length || 0
+  const blockedChars = text.match(/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/g)?.length || 0
+
+  return latinChars >= 2 && blockedChars === 0
+}
+
+function createLocalDisplay(text: string, sourceChunkId?: string): AudienceDisplay {
+  const words = normalizeSpaces(text)
+    .split(' ')
+    .map((word) => word.replace(/^["'([{]+|[)"'\]},.!?:;]+$/g, ''))
+    .filter(Boolean)
+
+  if (!words.length) {
+    return {
+      text: 'Speak to begin',
+      emphasis: ['begin'],
+      tone: 'green',
+      sourceChunkId,
+    }
+  }
+
+  let bestIndex = 0
+  let bestScore = -1
+
+  words.forEach((word, index) => {
+    const normalized = normalizeDisplayWord(word)
+    const score =
+      normalized.length +
+      (stopWords.has(normalized) ? -8 : 0) +
+      (index === 0 ? -1 : 0) +
+      (/demo|teleprompter|product|visual|stage|speech|voice|scene|energy|drink/.test(normalized)
+        ? 8
+        : 0)
+
+    if (score > bestScore) {
+      bestIndex = index
+      bestScore = score
+    }
+  })
+
+  const start = Math.max(0, bestIndex - 2)
+  const end = Math.min(words.length, start + 5)
+  const phrase = words.slice(Math.max(0, end - 5), end).join(' ')
+  const emphasis = words[bestIndex]
+
+  return {
+    text: phrase || words.slice(0, 5).join(' '),
+    emphasis: emphasis ? [emphasis] : [],
+    tone: 'green',
+    sourceChunkId,
+  }
+}
+
+function parseDisplayResponse(raw: string, fallbackText: string, sourceChunkId?: string) {
+  try {
+    const parsed = JSON.parse(stripJsonFence(raw))
+    const display = normalizeSpaces(String(parsed.display || ''))
+    const emphasis = Array.isArray(parsed.emphasis)
+      ? parsed.emphasis.map((item: unknown) => String(item)).filter(Boolean).slice(0, 2)
+      : []
+    const tone = ['green', 'blue', 'red', 'gold'].includes(parsed.color)
+      ? (parsed.color as DisplayTone)
+      : 'green'
+
+    if (!isProbablyEnglish(display)) {
+      return createLocalDisplay(fallbackText, sourceChunkId)
+    }
+
+    return {
+      text: display.split(' ').slice(0, 6).join(' '),
+      emphasis: emphasis.length ? emphasis : [display.split(' ').at(-1) || display],
+      tone,
+      sourceChunkId,
+    }
+  } catch {
+    return createLocalDisplay(fallbackText, sourceChunkId)
+  }
+}
+
 function parseVisualCues(raw: string): VisualCue[] {
   if (!raw) return []
 
   try {
-    const parsed = JSON.parse(raw.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim())
+    const parsed = JSON.parse(stripJsonFence(raw))
     const list = Array.isArray(parsed) ? parsed : parsed.visualCues
 
     if (!Array.isArray(list)) return []
@@ -111,35 +248,55 @@ function parseVisualCues(raw: string): VisualCue[] {
 }
 
 function App() {
+  const initialDisplay = useMemo(
+    () => createLocalDisplay(phaseZeroFixture.typedInput.at(-1)?.text || ''),
+    [],
+  )
   const [connectionState, setConnectionState] = useState<ConnectionState>('idle')
-  const [status, setStatus] = useState('Ready for Phase 0.5 Realtime spike.')
+  const [status, setStatus] = useState('Ready.')
   const [presentationBrief, setPresentationBrief] = useState(
     phaseZeroFixture.presentationBrief,
   )
   const [partialTranscript, setPartialTranscript] = useState('')
+  const [demoPartial, setDemoPartial] = useState('')
+  const [demoState, setDemoState] = useState<DemoState>('idle')
+  const [manualText, setManualText] = useState('')
   const [finalizedChunks, setFinalizedChunks] = useState<StreamChunk[]>(
     phaseZeroFixture.typedInput,
   )
+  const [audienceDisplay, setAudienceDisplay] = useState<AudienceDisplay>(initialDisplay)
   const [planningState, setPlanningState] = useState<PlanningState>('idle')
   const [planningDraft, setPlanningDraft] = useState('')
   const [generatedParagraph, setGeneratedParagraph] =
-    useState<GeneratedParagraph | null>(phaseZeroFixture.generatedParagraphs[0])
+    useState<GeneratedParagraph | null>(null)
   const [timings, setTimings] = useState<TimingEntry[]>([])
   const [lastError, setLastError] = useState('')
+  const [overlayVisible, setOverlayVisible] = useState(true)
+  const [debugVisible, setDebugVisible] = useState(false)
+  const [streamPaused, setStreamPaused] = useState(false)
 
   const handlesRef = useRef<RealtimeHandles | null>(null)
   const partialByItemRef = useRef(new Map<string, string>())
   const responsePurposesRef = useRef(new Map<string, string>())
   const responseRequestIdsRef = useRef(new Map<string, number>())
+  const responseChunkIdsRef = useRef(new Map<string, string>())
+  const responseFallbackTextRef = useRef(new Map<string, string>())
+  const displayExtractionRawRef = useRef(new Map<string, string>())
   const planningRawRef = useRef('')
+  const finalizedChunksRef = useRef(phaseZeroFixture.typedInput)
   const finalizedTextRef = useRef(phaseZeroFixture.typedInput.map((item) => item.text).join(' '))
+  const audienceDisplayRef = useRef(initialDisplay)
   const planningStartedAtRef = useRef<number | null>(null)
   const lastFinalizedAtRef = useRef<number | null>(null)
   const timingIdRef = useRef(0)
   const planningRequestIdRef = useRef(0)
-  const hasGeneratedRef = useRef(true)
+  const hasGeneratedRef = useRef(false)
   const planningStateRef = useRef<PlanningState>('idle')
   const presentationBriefRef = useRef(presentationBrief)
+  const streamPausedRef = useRef(false)
+  const demoWordsRef = useRef<string[]>([])
+  const demoIndexRef = useRef(0)
+  const demoTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     planningStateRef.current = planningState
@@ -148,6 +305,21 @@ function App() {
   useEffect(() => {
     presentationBriefRef.current = presentationBrief
   }, [presentationBrief])
+
+  useEffect(() => {
+    streamPausedRef.current = streamPaused
+  }, [streamPaused])
+
+  useEffect(() => {
+    audienceDisplayRef.current = audienceDisplay
+  }, [audienceDisplay])
+
+  const stopDemoTimer = useCallback(() => {
+    if (demoTimerRef.current != null) {
+      window.clearInterval(demoTimerRef.current)
+      demoTimerRef.current = null
+    }
+  }, [])
 
   const mark = useCallback((label: string, detail?: string) => {
     timingIdRef.current += 1
@@ -179,6 +351,79 @@ function App() {
     [mark],
   )
 
+  const requestDisplayExtraction = useCallback(
+    (transcript: string, chunkId: string) => {
+      const sent = sendEvent({
+        type: 'response.create',
+        response: {
+          conversation: 'none',
+          metadata: {
+            topic: 'display-extract',
+            chunkId,
+          },
+          output_modalities: ['text'],
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: [
+                {
+                  type: 'input_text',
+                  text: [
+                    'Create a slide-like audience display from finalized speech.',
+                    'Use quick reasoning silently. Return English only.',
+                    'Return strict JSON only: {"display":"2-6 word phrase","emphasis":["one meaningful word"],"color":"green|blue|red|gold"}.',
+                    'Choose the emphasized word by meaning, not by position.',
+                    'Avoid raw transcript fragments and avoid non-English output.',
+                    '',
+                    `Presentation goal:\n${presentationBriefRef.current || '(no explicit brief)'}`,
+                    '',
+                    `Finalized speech:\n${transcript}`,
+                  ].join('\n'),
+                },
+              ],
+            },
+          ],
+        },
+      })
+
+      if (sent) {
+        mark('display extraction requested', chunkId)
+      }
+    },
+    [mark, sendEvent],
+  )
+
+  const appendFinalizedChunk = useCallback(
+    (text: string, source: StreamSource) => {
+      const trimmed = normalizeSpaces(text)
+
+      if (!trimmed) return null
+
+      const chunk: StreamChunk = {
+        id: `${source}-${Date.now()}`,
+        text: trimmed,
+        timestamp: new Date().toISOString(),
+        source,
+        status: 'final',
+      }
+
+      finalizedChunksRef.current = [...finalizedChunksRef.current, chunk]
+      finalizedTextRef.current = `${finalizedTextRef.current} ${trimmed}`.trim()
+      lastFinalizedAtRef.current = performance.now()
+      setFinalizedChunks(finalizedChunksRef.current)
+      setAudienceDisplay(createLocalDisplay(trimmed, chunk.id))
+      mark('sentence or phrase finalized', trimmed)
+
+      if (source !== 'generated') {
+        requestDisplayExtraction(trimmed, chunk.id)
+      }
+
+      return chunk
+    },
+    [mark, requestDisplayExtraction],
+  )
+
   const buildPlannerPrompt = useCallback(() => {
     const recentContext = finalizedTextRef.current.trim() || '(none yet)'
 
@@ -203,6 +448,13 @@ function App() {
         return
       }
 
+      const channel = handlesRef.current?.channel
+
+      if (!channel || channel.readyState !== 'open') {
+        mark('planning skipped', 'data channel not open')
+        return
+      }
+
       const context = finalizedTextRef.current.trim()
 
       if (!context) {
@@ -215,6 +467,7 @@ function App() {
       setPlanningDraft('')
       setGeneratedParagraph(null)
       setPlanningState('generating')
+      planningStateRef.current = 'generating'
       mark('llm request started', reason)
       planningRequestIdRef.current += 1
 
@@ -315,16 +568,17 @@ function App() {
       const paragraph = split.paragraph
       const visualCues = parseVisualCues(split.visualCueText)
 
-      if (!paragraph) {
+      if (!paragraph || !isProbablyEnglish(paragraph)) {
         setPlanningState('failed')
-        setLastError('Planning response finished without usable paragraph text.')
+        planningStateRef.current = 'failed'
+        setLastError('Planning response finished without usable English paragraph text.')
         mark('generation failed', 'empty paragraph')
         return
       }
 
       const generated: GeneratedParagraph = {
         id: `generated-${Date.now()}`,
-        sourceContextIds: finalizedChunks.map((chunk) => chunk.id),
+        sourceContextIds: finalizedChunksRef.current.map((chunk) => chunk.id),
         text: paragraph,
         createdAt: new Date().toISOString(),
         visualCues,
@@ -334,6 +588,7 @@ function App() {
       setGeneratedParagraph(generated)
       setPlanningDraft(paragraph)
       setPlanningState('ready')
+      planningStateRef.current = 'ready'
       mark(
         'usable paragraph received',
         planningStartedAtRef.current == null
@@ -345,7 +600,27 @@ function App() {
         mark('visual cue received', visualCues.map((cue) => cue.phrase).join(', '))
       }
     },
-    [finalizedChunks, mark],
+    [mark],
+  )
+
+  const finishDisplayExtraction = useCallback(
+    (event: ServerEvent) => {
+      const responseId = eventResponseId(event)
+      const chunkId = responseChunkIdsRef.current.get(responseId)
+      const fallbackText = responseFallbackTextRef.current.get(responseId) || ''
+      const raw = displayExtractionRawRef.current.get(responseId) || textFromResponseDone(event)
+
+      responsePurposesRef.current.delete(responseId)
+      responseChunkIdsRef.current.delete(responseId)
+      responseFallbackTextRef.current.delete(responseId)
+      displayExtractionRawRef.current.delete(responseId)
+
+      if (!chunkId || audienceDisplayRef.current.sourceChunkId !== chunkId) return
+
+      setAudienceDisplay(parseDisplayResponse(raw, fallbackText, chunkId))
+      mark('display extraction received', chunkId)
+    },
+    [mark],
   )
 
   const handleServerEvent = useCallback(
@@ -356,20 +631,30 @@ function App() {
       if (responseId && topic) {
         responsePurposesRef.current.set(responseId, topic)
         const requestId = Number(event.response?.metadata?.requestId)
+        const chunkId = event.response?.metadata?.chunkId
 
         if (Number.isFinite(requestId)) {
           responseRequestIdsRef.current.set(responseId, requestId)
         }
+
+        if (chunkId) {
+          responseChunkIdsRef.current.set(responseId, chunkId)
+          const sourceText =
+            finalizedChunksRef.current.find((chunk) => chunk.id === chunkId)?.text || ''
+          responseFallbackTextRef.current.set(responseId, sourceText)
+        }
       }
 
       if (event.type === 'session.created') {
-        setStatus('Connected. Speak a sentence to test real generation.')
+        setStatus('Connected. Speak naturally.')
         setConnectionState('listening')
         mark('session created')
         return
       }
 
       if (event.type === 'conversation.item.input_audio_transcription.delta') {
+        if (streamPausedRef.current) return
+
         const itemId = event.item_id || 'current'
         const previous = partialByItemRef.current.get(itemId) || ''
 
@@ -398,23 +683,11 @@ function App() {
           Array.from(partialByItemRef.current.values()).join(' ').trim(),
         )
 
-        if (!transcript) return
+        if (!transcript || streamPausedRef.current) return
 
-        lastFinalizedAtRef.current = performance.now()
-        finalizedTextRef.current = `${finalizedTextRef.current} ${transcript}`.trim()
-        setFinalizedChunks((current) => [
-          ...current,
-          {
-            id: `speech-${Date.now()}`,
-            text: transcript,
-            timestamp: new Date().toISOString(),
-            source: 'speech',
-            status: 'final',
-          },
-        ])
-        mark('sentence or phrase finalized', transcript)
+        appendFinalizedChunk(transcript, 'speech')
 
-        if (!hasGeneratedRef.current || planningStateRef.current === 'idle') {
+        if (!hasGeneratedRef.current && planningStateRef.current === 'idle') {
           requestPlanning('first finalized speech')
         }
         return
@@ -428,6 +701,13 @@ function App() {
 
         if (purpose === 'teleprompter-plan') {
           handlePlanningDelta(event)
+        }
+
+        if (purpose === 'display-extract') {
+          displayExtractionRawRef.current.set(
+            responseId,
+            `${displayExtractionRawRef.current.get(responseId) || ''}${event.delta || ''}`,
+          )
         }
         return
       }
@@ -443,6 +723,10 @@ function App() {
           responseRequestIdsRef.current.delete(responseId)
           finishPlanning(event)
         }
+
+        if (purpose === 'display-extract') {
+          finishDisplayExtraction(event)
+        }
         return
       }
 
@@ -454,7 +738,7 @@ function App() {
         mark('error', message)
       }
     },
-    [finishPlanning, handlePlanningDelta, mark, requestPlanning],
+    [appendFinalizedChunk, finishDisplayExtraction, finishPlanning, handlePlanningDelta, mark, requestPlanning],
   )
 
   const closeRealtimeHandles = useCallback(() => {
@@ -506,7 +790,7 @@ function App() {
       channel.addEventListener('open', () => {
         mark('data channel open')
         configureSession()
-        setStatus('Listening. Speak a short sentence.')
+        setStatus('Listening.')
         setConnectionState('listening')
       })
 
@@ -544,109 +828,307 @@ function App() {
     }
   }, [closeRealtimeHandles, configureSession, handleServerEvent, mark, stopRealtime])
 
-  useEffect(() => closeRealtimeHandles, [closeRealtimeHandles])
+  const submitManualText = useCallback(() => {
+    const chunk = appendFinalizedChunk(manualText, 'typed')
+
+    if (chunk) {
+      setManualText('')
+    }
+  }, [appendFinalizedChunk, manualText])
+
+  const finalizeDemoStream = useCallback(() => {
+    stopDemoTimer()
+    const text = demoWordsRef.current.join(' ')
+    setDemoPartial('')
+    setDemoState('idle')
+    appendFinalizedChunk(text, 'typed')
+  }, [appendFinalizedChunk, stopDemoTimer])
+
+  const startDemoStream = useCallback(() => {
+    if (demoState === 'paused' && demoWordsRef.current.length) {
+      setDemoState('streaming')
+    } else {
+      demoWordsRef.current = demoSentence.split(' ')
+      demoIndexRef.current = 0
+      setDemoPartial('')
+      setDemoState('streaming')
+    }
+
+    stopDemoTimer()
+    demoTimerRef.current = window.setInterval(() => {
+      const nextIndex = demoIndexRef.current + 1
+      demoIndexRef.current = nextIndex
+      setDemoPartial(demoWordsRef.current.slice(0, nextIndex).join(' '))
+
+      if (nextIndex >= demoWordsRef.current.length) {
+        finalizeDemoStream()
+      }
+    }, 140)
+  }, [demoState, finalizeDemoStream, stopDemoTimer])
+
+  const pauseDemoStream = useCallback(() => {
+    stopDemoTimer()
+    setDemoState('paused')
+  }, [stopDemoTimer])
+
+  const skipCurrentScript = useCallback(() => {
+    hasGeneratedRef.current = false
+    planningStateRef.current = 'idle'
+    planningRawRef.current = ''
+    setGeneratedParagraph(null)
+    setPlanningDraft('')
+    setPlanningState('idle')
+    mark('script skipped')
+  }, [mark])
+
+  const regenerateScript = useCallback(() => {
+    skipCurrentScript()
+    requestPlanning('manual regenerate')
+  }, [requestPlanning, skipCurrentScript])
+
+  const acceptCurrentScript = useCallback(() => {
+    if (!generatedParagraph?.text) return
+
+    appendFinalizedChunk(generatedParagraph.text, 'generated')
+    skipCurrentScript()
+    mark('script accepted')
+  }, [appendFinalizedChunk, generatedParagraph, mark, skipCurrentScript])
+
+  const doneReadingAndGenerate = useCallback(() => {
+    if (generatedParagraph?.text) {
+      appendFinalizedChunk(generatedParagraph.text, 'generated')
+    }
+
+    skipCurrentScript()
+    requestPlanning('done reading')
+  }, [appendFinalizedChunk, generatedParagraph, requestPlanning, skipCurrentScript])
+
+  const clearSession = useCallback(() => {
+    stopDemoTimer()
+    setDemoState('idle')
+    setDemoPartial('')
+    setPartialTranscript('')
+    setManualText('')
+    finalizedChunksRef.current = []
+    finalizedTextRef.current = ''
+    hasGeneratedRef.current = false
+    planningStateRef.current = 'idle'
+    planningRawRef.current = ''
+    setFinalizedChunks([])
+    setAudienceDisplay(createLocalDisplay(''))
+    setGeneratedParagraph(null)
+    setPlanningDraft('')
+    setPlanningState('idle')
+    setTimings([])
+    setLastError('')
+    mark('session cleared')
+  }, [mark, stopDemoTimer])
+
+  useEffect(() => {
+    return () => {
+      closeRealtimeHandles()
+      stopDemoTimer()
+    }
+  }, [closeRealtimeHandles, stopDemoTimer])
 
   const canGenerate = connectionState === 'listening' && planningState !== 'generating'
-  const latestDisplay =
-    finalizedChunks[finalizedChunks.length - 1]?.text || 'Speak to begin'
   const visibleScript = planningDraft || generatedParagraph?.text || ''
   const cue = generatedParagraph?.visualCues[0]
+  const livePartial = partialTranscript || demoPartial
+  const emphasisSet = new Set(audienceDisplay.emphasis.map(normalizeDisplayWord))
 
   return (
-    <main className="app-shell">
-      <section className="stage" aria-labelledby="stage-title">
-        <p className="stage-label">Phase 0.5 Realtime spike</p>
-        <h1 id="stage-title">
-          <span>living</span> teleprompter
-        </h1>
-        <p className="stage-phrase">{latestDisplay}</p>
-        <p className={`live-transcript ${partialTranscript ? 'active' : ''}`}>
-          {partialTranscript
-            ? `listening: ${partialTranscript}`
-            : 'partial transcript will render here while you speak'}
+    <main className={`app-shell ${overlayVisible ? '' : 'overlay-hidden'}`}>
+      <section className="stage" aria-label="Audience teleprompter">
+        <p className={`stage-phrase tone-${audienceDisplay.tone}`}>
+          {audienceDisplay.text.split(' ').map((word, index) => {
+            const emphasized = emphasisSet.has(normalizeDisplayWord(word))
+
+            return (
+              <span key={`${word}-${index}`} className={emphasized ? 'emphasized' : undefined}>
+                {word}
+                {index === audienceDisplay.text.split(' ').length - 1 ? '' : ' '}
+              </span>
+            )
+          })}
+        </p>
+        <p className={`live-transcript ${livePartial ? 'active' : ''}`}>
+          {livePartial || 'listening text appears here'}
         </p>
       </section>
 
-      <aside className="presenter-panel" aria-label="Presenter controls">
-        <section className="control-section">
-          <h2>Realtime</h2>
-          <p className={`status-pill ${connectionState}`}>{status}</p>
-          <div className="button-row">
-            <button
-              type="button"
-              onClick={startRealtime}
-              disabled={connectionState === 'connecting' || connectionState === 'listening'}
-            >
-              Start mic
-            </button>
-            <button
-              type="button"
-              onClick={stopRealtime}
-              disabled={connectionState !== 'listening'}
-            >
-              Stop
-            </button>
-          </div>
-          {lastError ? <p className="error-text">{lastError}</p> : null}
-        </section>
+      {!overlayVisible ? (
+        <button
+          type="button"
+          className="overlay-toggle floating"
+          onClick={() => setOverlayVisible(true)}
+        >
+          Controls
+        </button>
+      ) : null}
 
-        <section>
-          <h2>Presentation brief</h2>
-          <textarea
-            value={presentationBrief}
-            onChange={(event) => setPresentationBrief(event.target.value)}
-            disabled={connectionState === 'listening' || connectionState === 'connecting'}
-            rows={4}
-          />
-        </section>
+      {overlayVisible ? (
+        <aside className="presenter-panel" aria-label="Presenter controls">
+          <section className="control-section">
+            <div className="section-heading-row">
+              <h2>Realtime</h2>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => setOverlayVisible(false)}
+              >
+                Hide
+              </button>
+            </div>
+            <p className={`status-pill ${connectionState}`}>{status}</p>
+            <div className="icon-row">
+              <button
+                type="button"
+                className="icon-button"
+                onClick={startRealtime}
+                disabled={connectionState === 'connecting' || connectionState === 'listening'}
+                aria-label="Start microphone"
+                title="Start microphone"
+              >
+                Mic
+              </button>
+              <button
+                type="button"
+                className="icon-button secondary"
+                onClick={stopRealtime}
+                disabled={connectionState !== 'listening'}
+                aria-label="Stop microphone"
+                title="Stop microphone"
+              >
+                Stop
+              </button>
+              <button
+                type="button"
+                className="icon-button secondary"
+                onClick={() => setStreamPaused((current) => !current)}
+                aria-label={streamPaused ? 'Resume streaming' : 'Pause streaming'}
+                title={streamPaused ? 'Resume streaming' : 'Pause streaming'}
+              >
+                {streamPaused ? 'Resume' : 'Pause'}
+              </button>
+            </div>
+            {lastError ? <p className="error-text">{lastError}</p> : null}
+          </section>
 
-        <section className="next-script">
-          <div className="section-heading-row">
-            <h2>Generated next script</h2>
-            <span className={`script-state ${planningState}`}>{planningState}</span>
-          </div>
-          <p className={visibleScript ? '' : 'muted'}>
-            {visibleScript || 'Speak a sentence, or click Generate next after context exists.'}
-          </p>
-          <button type="button" onClick={() => requestPlanning('manual')} disabled={!canGenerate}>
-            Generate next
-          </button>
-        </section>
+          {connectionState === 'idle' || connectionState === 'error' ? (
+            <section>
+              <h2>Presentation brief</h2>
+              <textarea
+                value={presentationBrief}
+                onChange={(event) => setPresentationBrief(event.target.value)}
+                rows={4}
+              />
+            </section>
+          ) : null}
 
-        <section className="system-grid">
-          <div>
-            <h2>Endpoint</h2>
-            <code>{clientConfig.realtimeSessionPath}</code>
-          </div>
-          <div>
-            <h2>Visual cue</h2>
-            <code>{cue?.sceneType || 'waiting'}</code>
-            <p>{cue?.phrase || 'No cue received yet.'}</p>
-          </div>
-        </section>
+          <section className="next-script">
+            <div className="section-heading-row">
+              <h2>Generated next script</h2>
+              <span className={`script-state ${planningState}`}>
+                {planningState === 'generating' && debugVisible ? '...' : planningState}
+              </span>
+            </div>
+            <p className={visibleScript ? '' : 'muted'}>
+              {visibleScript || 'Speak a sentence, or click Generate next after context exists.'}
+            </p>
+            <div className="button-row">
+              <button type="button" onClick={() => requestPlanning('manual')} disabled={!canGenerate}>
+                Generate next
+              </button>
+              <button
+                type="button"
+                onClick={doneReadingAndGenerate}
+                disabled={!generatedParagraph || !canGenerate}
+              >
+                Done reading
+              </button>
+              <button type="button" onClick={regenerateScript} disabled={!canGenerate}>
+                Regenerate
+              </button>
+              <button type="button" onClick={skipCurrentScript} disabled={!generatedParagraph}>
+                Skip
+              </button>
+              <button type="button" onClick={acceptCurrentScript} disabled={!generatedParagraph}>
+                Accept
+              </button>
+            </div>
+          </section>
 
-        <section>
-          <h2>Finalized context</h2>
-          <ol className="chunk-list">
-            {finalizedChunks.slice(-5).map((chunk) => (
-              <li key={chunk.id}>{chunk.text}</li>
-            ))}
-          </ol>
-        </section>
+          <section>
+            <h2>Manual input</h2>
+            <textarea
+              value={manualText}
+              onChange={(event) => setManualText(event.target.value)}
+              rows={3}
+              placeholder="Type a sentence for local UI testing"
+            />
+            <div className="button-row">
+              <button type="button" onClick={submitManualText} disabled={!manualText.trim()}>
+                Add sentence
+              </button>
+              <button
+                type="button"
+                onClick={demoState === 'streaming' ? pauseDemoStream : startDemoStream}
+              >
+                {demoState === 'streaming' ? 'Pause demo' : 'Start demo'}
+              </button>
+              <button type="button" onClick={clearSession}>
+                Clear
+              </button>
+            </div>
+          </section>
 
-        <section>
-          <h2>Timing log</h2>
-          <ol className="timing-list">
-            {timings.map((timing) => (
-              <li key={timing.id}>
-                <span>{timing.label}</span>
-                <code>{timing.atMs}ms</code>
-                {timing.detail ? <p>{timing.detail}</p> : null}
-              </li>
-            ))}
-          </ol>
-        </section>
-      </aside>
+          <section className="system-grid">
+            <div>
+              <h2>Endpoint</h2>
+              <code>{clientConfig.realtimeSessionPath}</code>
+            </div>
+            <div>
+              <h2>Visual cue</h2>
+              <code>{cue?.sceneType || 'waiting'}</code>
+              <p>{cue?.phrase || 'No cue received yet.'}</p>
+            </div>
+          </section>
+
+          <section>
+            <div className="section-heading-row">
+              <h2>Finalized context</h2>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => setDebugVisible((current) => !current)}
+              >
+                {debugVisible ? 'Hide debug' : 'Debug'}
+              </button>
+            </div>
+            <ol className="chunk-list">
+              {finalizedChunks.slice(-5).map((chunk) => (
+                <li key={chunk.id}>{chunk.text}</li>
+              ))}
+            </ol>
+          </section>
+
+          {debugVisible ? (
+            <section>
+              <h2>Timing log</h2>
+              <ol className="timing-list">
+                {timings.map((timing) => (
+                  <li key={timing.id}>
+                    <span>{timing.label}</span>
+                    <code>{timing.atMs}ms</code>
+                    {timing.detail ? <p>{timing.detail}</p> : null}
+                  </li>
+                ))}
+              </ol>
+            </section>
+          ) : null}
+        </aside>
+      ) : null}
     </main>
   )
 }

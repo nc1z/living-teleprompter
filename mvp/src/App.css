@@ -96,6 +96,45 @@
   transform: translateY(-32%);
 }
 
+.app-shell.reference-layout-text-left-art-right .stage-phrase {
+  max-width: min(48vw, 760px);
+  justify-self: start;
+  margin-left: 5vw;
+  text-align: left;
+  transform: translateY(-10%);
+}
+
+.app-shell.reference-layout-text-left-art-right .reference-visuals {
+  top: 71%;
+  left: 70%;
+  width: min(46vw, 680px);
+}
+
+.app-shell.reference-layout-text-right-art-left .stage-phrase {
+  max-width: min(48vw, 760px);
+  justify-self: end;
+  margin-right: 5vw;
+  text-align: right;
+  transform: translateY(-10%);
+}
+
+.app-shell.reference-layout-text-right-art-left .reference-visuals {
+  top: 71%;
+  left: 30%;
+  width: min(46vw, 680px);
+}
+
+.app-shell.reference-layout-text-top-art-bottom .stage-phrase {
+  max-width: min(980px, 82vw);
+  transform: translateY(-48%);
+}
+
+.app-shell.reference-layout-text-top-art-bottom .reference-visuals {
+  top: 72%;
+  left: 50%;
+  width: min(62vw, 820px);
+}
+
 .stage-phrase .emphasized {
   text-decoration-line: underline;
   text-decoration-thickness: 0.075em;
@@ -499,6 +538,25 @@ code {
     left: 58%;
     right: auto;
     bottom: auto;
+    width: 76vw;
+  }
+
+  .app-shell.reference-layout-text-left-art-right .stage-phrase,
+  .app-shell.reference-layout-text-right-art-left .stage-phrase,
+  .app-shell.reference-layout-text-top-art-bottom .stage-phrase {
+    max-width: 92vw;
+    justify-self: center;
+    margin-right: 0;
+    margin-left: 0;
+    text-align: center;
+    transform: translateY(-34%);
+  }
+
+  .app-shell.reference-layout-text-left-art-right .reference-visuals,
+  .app-shell.reference-layout-text-right-art-left .reference-visuals,
+  .app-shell.reference-layout-text-top-art-bottom .reference-visuals {
+    top: 73%;
+    left: 58%;
     width: 76vw;
   }
 }

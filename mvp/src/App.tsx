@@ -31,6 +31,7 @@ type PlanningState = 'idle' | 'generating' | 'ready' | 'reading' | 'consumed' | 
 type ConnectionState = 'idle' | 'connecting' | 'listening' | 'error'
 type DisplayTone = 'green' | 'blue' | 'red' | 'gold'
 type ScriptFeedback = 'idle' | 'matched' | 'diverged'
+type ReferenceLayoutVariant = 'text-left-art-right' | 'text-right-art-left' | 'text-top-art-bottom'
 type PlanningOptions = {
   retry?: boolean
 }
@@ -93,6 +94,11 @@ const visualCueMarker = '---VISUAL_CUES_JSON---'
 const visualQueryMarker = '---VISUAL_SEARCH_QUERY---'
 const experimentalAsciiVisuals =
   import.meta.env.VITE_EXPERIMENTAL_ASCII_VISUALS !== 'false'
+const referenceLayoutVariants: ReferenceLayoutVariant[] = [
+  'text-left-art-right',
+  'text-right-art-left',
+  'text-top-art-bottom',
+]
 const maxPlanningRetries = 1
 const storyBeatIdeas = [
   'set up the promise in one clear line',
@@ -543,6 +549,8 @@ function App() {
   const [speechSignals, setSpeechSignals] =
     useState<SpeechSignals>(defaultSpeechSignals)
   const [visualReferences, setVisualReferences] = useState<VisualReference[]>([])
+  const [referenceLayoutVariant, setReferenceLayoutVariant] =
+    useState<ReferenceLayoutVariant>('text-left-art-right')
 
   const handlesRef = useRef<RealtimeHandles | null>(null)
   const partialByItemRef = useRef(new Map<string, string>())
@@ -1011,8 +1019,18 @@ function App() {
         const payload = (await response.json()) as {
           references?: VisualReference[]
         }
+        const readyReferenceExists = Boolean(
+          payload.references?.some((reference) => reference.status === 'ready' && reference.art),
+        )
 
         setVisualReferences(payload.references || [])
+        if (readyReferenceExists) {
+          setReferenceLayoutVariant(
+            referenceLayoutVariants[
+              Math.floor(Math.random() * referenceLayoutVariants.length)
+            ],
+          )
+        }
         mark('visual references ready', visualQuery)
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Visual reference lookup failed'
@@ -1514,6 +1532,7 @@ function App() {
     setAudienceDisplay(createLocalDisplay(''))
     setActiveSceneConfig(initialScene)
     setSpeechSignals(defaultSpeechSignals)
+    setReferenceLayoutVariant('text-left-art-right')
     clearVisibleScript()
     setVisualReferences([])
     setPlanningState('idle')
@@ -1544,14 +1563,17 @@ function App() {
   const canRegenerate = connectionState === 'listening' && planningState !== 'generating'
   const visibleScript = planningDraft || generatedParagraph?.text || ''
   const emphasisSet = new Set(audienceDisplay.emphasis.map(normalizeDisplayWord))
+  const hasReadyReference = visualReferences.some(
+    (reference) => reference.status === 'ready' && reference.art,
+  )
 
   return (
-    <main className={`app-shell ${overlayVisible && !isEvalMode ? '' : 'overlay-hidden'} ${isEvalMode ? 'eval-mode' : ''} ${experimentalAsciiVisuals ? 'ascii-mode' : ''} ${visualReferences.some((reference) => reference.status === 'ready' && reference.art) ? 'reference-art-visible' : ''}`}>
+    <main className={`app-shell ${overlayVisible && !isEvalMode ? '' : 'overlay-hidden'} ${isEvalMode ? 'eval-mode' : ''} ${experimentalAsciiVisuals ? 'ascii-mode' : ''} ${hasReadyReference ? 'reference-art-visible' : ''} ${hasReadyReference ? `reference-layout-${referenceLayoutVariant}` : ''}`}>
       <section className="stage" aria-label="Audience teleprompter">
         {experimentalAsciiVisuals ? null : (
           <GlyphStage sceneConfig={activeSceneConfig} speechSignals={speechSignals} />
         )}
-        {experimentalAsciiVisuals && visualReferences.some((reference) => reference.status === 'ready' && reference.art) ? (
+        {experimentalAsciiVisuals && hasReadyReference ? (
           <div className="reference-visuals" aria-label="Reference visuals">
             {visualReferences
               .filter((reference) => reference.status === 'ready' && reference.art)

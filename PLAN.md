@@ -15,7 +15,7 @@
 - Keep Phase 1 DOM-first. PretextJS, canvas physics, and HTML-in-Canvas are later rendering layers, not MVP blockers.
 - Keep the shared page as the default product surface. The generated next script can stay in the same UI as the visible teleprompter experience; separate presenter/audience views and hiding the script are optional post-MVP enhancements.
 - Optimize the LLM path for speed. Use one streaming generation call that returns paragraph text first and lightweight visual cues in the same response.
-- Start glyph scene config generation or local scene retargeting as early as possible once a usable paragraph or cue exists.
+- Treat glyph scene config generation and local scene retargeting as downstream polish until the real-time text summary, emphasis, script regeneration, and script completion loop is reliable.
 - Keep deterministic fixtures for development and visual testing only. They are not a substitute for the real LLM feasibility test.
 
 ## POC Learnings To Preserve
@@ -154,7 +154,7 @@ Prove that the live demo concept can work with real services:
 
 1. OpenAI Realtime API can receive browser microphone input and return useful live transcription/planning events.
 2. WebRTC can stream speech smoothly enough for large text to appear while the presenter is still talking.
-3. Real glyph scene config generation or local scene retargeting can start from received context early enough to be useful during the generated paragraph.
+3. A real LLM can generate useful next-script text fast enough, keep it stable while visible, and react when the presenter completes or skips it.
 
 ### Spike Rules
 
@@ -196,7 +196,9 @@ Prove that the live demo concept can work with real services:
 - [ ] Test with at least three short spoken prompts.
 - [ ] Record whether the text feels usable for a live presentation.
 
-### Spike Workstream 3: Glyph Scene Generation From Context
+### Deferred Visual Spike: Glyph Scene Generation From Context
+
+This is not required for the core spike pass/fail decision. Run it only after the real-time text summary, generated script lifecycle, last-two-words completion, and going-off-script regeneration are reliable.
 
 - [ ] From a stable phrase or generated paragraph, create one visual cue or scene intent.
 - [ ] Start glyph scene config generation or local scene retargeting immediately.
@@ -218,17 +220,17 @@ Prove that the live demo concept can work with real services:
 - [ ] The generated next paragraph does not re-generate or replace itself while it is visible.
 - [ ] The spike has a manual way to mark the generated script done before generating the next one.
 - [ ] The first generated text arrives fast enough to avoid an awkward pause in at least some normal test runs.
-- [ ] A glyph scene config request or local scene action starts from live or generated context.
-- [ ] At least one local glyph scene appears on screen.
-- [ ] Timing data is captured for speech-to-text, speech-to-script, and context-to-scene.
+- [ ] Last-two-words completion can mark the current script done and allow the next script.
+- [ ] Going off script can trigger regeneration from the latest spoken context.
+- [ ] Timing data is captured for speech-to-text and speech-to-script.
 
 ### Spike Decision
 
 After the spike, decide one of:
 
 - **Proceed:** latency is good enough to build the product plan.
-- **Proceed with UX adjustment:** text works, but the generated script or glyph scenes need fallback behavior, pacing, or delayed reveal.
-- **Stop or rethink:** real LLM or scene latency is too slow for the core live presentation concept.
+- **Proceed with UX adjustment:** text works, but generated script completion, divergence handling, or pacing needs fallback behavior.
+- **Stop or rethink:** real LLM latency or script quality is too weak for the core live presentation concept.
 
 ## Phase 0: Minimal Project Bootstrap
 
@@ -424,11 +426,225 @@ Prove the core product loop with real services: spoken context enters the telepr
 - [ ] Provider failure path retries once and then allows manual regenerate.
 - [ ] No background process blocks text streaming.
 
-## Phase 2: Glyph Scene Runtime
+## Phase 2: Text and Script Loop Hardening
 
 ### Objective
 
-Create the local glyph scene runtime that accepts structured visual cues or scene intents and produces immediate canvas/Pretext-ready motion. This replaces runtime image generation as the primary live visual path.
+Make the core live product loop reliable before investing in visuals: real-time speech should become stable summarized display text, generated script should remain useful and immutable while visible, going off script should regenerate from the latest context, and saying the last two words should mark the current script complete.
+
+### 1. Realtime Display Summary
+
+- [ ] Confirm finalized speech always triggers display extraction in the MVP.
+- [ ] Keep the local English fallback summary immediate so the big text updates even when the LLM is slow.
+- [ ] Keep partial transcript in the footer/debug line only.
+- [ ] Ensure LLM display extraction returns concise English slide-like text.
+- [ ] Ensure emphasis is selected by meaning, not by word position.
+- [ ] Reject malformed or non-English display extraction and keep the local fallback.
+- [ ] Avoid layout shift and broken multi-line fragments in the big display.
+
+### 2. Generated Script Lifecycle
+
+- [ ] Keep the current generated script immutable while it is visible.
+- [ ] Do not regenerate or replace the current script from normal finalized speech.
+- [ ] Generate only when the script queue is empty, the presenter clicks a control, or the current script is completed.
+- [ ] Preserve manual controls: `Generate next`, `Done reading`, `Regenerate`, `Skip`, and `Accept`.
+- [ ] Track script states explicitly: `idle`, `generating`, `ready`, `reading`, `consumed`, and `failed`.
+- [ ] Prevent stale generated paragraphs from overwriting newer presenter intent.
+
+### 3. Last-Two-Words Completion
+
+- [ ] Normalize finalized speech and generated script text for loose word matching.
+- [ ] Detect when finalized speech matches the last two meaningful words of the current generated script.
+- [ ] Mark the current generated script complete when the match succeeds.
+- [ ] Append or mark the completed generated script in context so future generations know it was accepted/read.
+- [ ] Show a visible success state such as a brief green highlight in the script panel.
+- [ ] Automatically allow or start the next script generation after completion.
+- [ ] Keep manual `Done reading` as a fallback even when speech matching exists.
+
+### 4. Going Off Script
+
+- [ ] Detect when finalized speech diverges from the current generated script strongly enough to imply topic change or skipped script.
+- [ ] Start with simple normalized word-overlap heuristics before adding model reasoning.
+- [ ] If divergence is detected, mark the current generated script as skipped.
+- [ ] Regenerate from the latest spoken context and presentation brief.
+- [ ] Avoid false positives while the presenter is still reading the generated script.
+- [ ] Preserve explicit `Skip` and `Regenerate` controls.
+
+### 5. Context Quality
+
+- [ ] Include the global presentation brief in every script and display-generation request.
+- [ ] Use the Phase 1 finalized chunk array as the primary context source.
+- [ ] Track generated scripts that were accepted/read.
+- [ ] Maintain a chronological recent-conversation window with speaker turns and accepted generated scripts.
+- [ ] Avoid summarization on the critical path.
+- [ ] Expose a compact context payload for provider calls.
+
+### Outputs
+
+- Stable real-time summarized display text.
+- Meaningful colored/underlined emphasis.
+- Immutable generated next script.
+- Last-two-words script completion.
+- Going-off-script regeneration from latest context.
+- Better script relevance from global brief plus recent conversation.
+
+### Validation
+
+- [ ] Spoken text produces concise big display text with meaningful emphasis.
+- [ ] The current generated script does not change unless completed, skipped, or regenerated.
+- [ ] Saying the last two meaningful words marks the script complete and shows green confirmation.
+- [ ] After completion, a new next script can be generated without manual cleanup.
+- [ ] Going off script regenerates from the latest spoken context.
+- [ ] Text streaming and display updates continue if script generation is slow or fails.
+
+## Phase 3: LLM Provider Hardening
+
+### Objective
+
+Harden the real provider path from the MVP and Phase 2: generate useful next paragraphs from live context, keep display extraction fast and English-only, and make provider failures recoverable without blocking the visible teleprompter.
+
+### 1. Context Manager Extension
+
+- [ ] Keep the current finalized sentence.
+- [ ] Keep the last 3-5 finalized sentences.
+- [ ] Support an optional cached session summary only when it already exists.
+- [ ] Use accepted/read generated scripts in future generation prompts.
+- [ ] Keep provider context compact enough for low latency.
+
+### 2. Provider Abstraction
+
+- [ ] Define a provider interface for streaming generated paragraph text.
+- [ ] Keep the real provider as the primary implementation.
+- [ ] Keep fixture/mock provider only for local UI development and test determinism.
+- [ ] Keep provider details out of UI components.
+- [ ] Support cancellation or stale-response protection if the presenter clears or skips.
+
+### 3. Streaming LLM Response Shape
+
+- [ ] Request paragraph text first.
+- [ ] Enforce English-only generated script output.
+- [ ] Include lightweight structured visual cues or scene intents in the same response.
+- [ ] Avoid a second blocking parser call.
+- [ ] Validate visual cues for later visual work, but do not block text/script behavior on them.
+- [ ] Use phrase match + paragraph index + optional word index for `targetTiming`.
+
+### 4. Latency and Failure Behavior
+
+- [ ] Start generation as soon as a sentence finalizes only if the script queue is empty.
+- [ ] Target first generated text within 1-2 seconds under normal conditions.
+- [ ] Target a usable paragraph within 3-5 seconds under normal conditions.
+- [ ] Retry once automatically on failure.
+- [ ] Use the Phase 1 debug flag for any visible generation delay state.
+- [ ] Keep teleprompter streaming current text during provider delay or failure.
+- [ ] Let presenter manually regenerate from controls.
+
+### 5. Script Queue
+
+- [ ] Add a generated paragraph queue with explicit states:
+  - [ ] `idle`: no queued script; finalized context may trigger generation.
+  - [ ] `generating`: a script is in flight; ignore new generation triggers.
+  - [ ] `ready`: script is visible and immutable; ignore new generation triggers.
+  - [ ] `reading`: presenter appears to be reading or has started reading; ignore new generation triggers.
+  - [ ] `consumed`: script is done; append/mark context and return to `idle`.
+- [ ] Show the next paragraph in the shared script panel.
+- [ ] Freeze generated paragraph text once visible; never replace it because new speech arrived.
+- [ ] Allow the next generation only from an explicit `Generate next` / `Done reading` action or a successful last-two-words speech match.
+- [ ] When speech matches the last two words, show a visible success state such as a brief green highlight.
+- [ ] If the presenter diverges from or ignores the generated script, treat that as skip/topic-change intent and regenerate from the latest spoken context.
+- [ ] Support explicit skip and regenerate.
+- [ ] Add a manual done-reading/generate-next control before relying on automatic speech matching.
+- [ ] In typed MVP mode, allow generated paragraphs to become context through the explicit accept/advance or done-reading control.
+- [ ] In voice mode, eventually allow generated paragraphs to become context through speech matching after the presenter reads them.
+- [ ] Treat sophisticated speech matching as an enhancement, but require simple last-two-words matching for the POC/MVP handoff.
+- [ ] Prevent stale generated paragraphs from overwriting newer presenter intent.
+
+### Outputs
+
+- Real LLM generation loop with fixture fallback for development.
+- Generated paragraph queue.
+- Structured cue extraction from the same provider response.
+- Recovery behavior for slow, malformed, or failed provider responses.
+
+### Validation
+
+- [ ] One finalized sentence produces a generated paragraph.
+- [ ] The paragraph appears before the presenter needs it in normal conditions.
+- [ ] LLM failure does not stall the visible teleprompter.
+- [ ] Provider output is rejected or retried when it is malformed or non-English.
+
+## Phase 4: Voice-to-Action Integration
+
+### Objective
+
+Productionize the Realtime speech path proven in Phase 0.5 and combine text streaming, display extraction, generated script queueing, script completion, and topic-change handling into one live presentation loop.
+
+### 1. Speech Capture
+
+- [ ] Harden the microphone permission flow from the feasibility spike.
+- [ ] Capture live audio reliably across supported browsers.
+- [ ] Stream speech-to-text partials into the teleprompter using the proven Realtime path.
+- [ ] Keep WebRTC as the default browser transport and reserve WebSockets for server-side audio pipelines.
+- [ ] Keep the backend responsible for Realtime session creation or ephemeral token minting.
+- [ ] Finalize recognized phrases or sentences into stream chunks.
+- [ ] Preserve typed input as a fallback and test harness.
+
+### 2. Voice-to-Context Loop
+
+- [ ] Send finalized speech sentences to the context manager.
+- [ ] Trigger text-only script planning responses from finalized or stable speech only when the script queue is `idle`.
+- [ ] Use out-of-band/custom-context responses where useful so planning output does not pollute the live conversation state.
+- [ ] Keep partial speech rendering immediate and independent from LLM state.
+- [ ] Use a separate fast display-extraction response to turn finalized speech into an English slide-like display phrase with structured emphasis.
+- [ ] Handle speech recognition interruptions without clearing context.
+
+### 3. Generated Script Delivery
+
+- [ ] Queue generated next paragraph for presenter reading in the same shared UI.
+- [ ] Accept `queue_next_paragraph`-style tool/function calls or equivalent structured outputs.
+- [ ] Keep the queued generated script immutable until the presenter skips it, regenerates intentionally, or marks it done.
+- [ ] Keep generated script in the shared script panel, distinct from the main large teleprompter text, until spoken or explicitly injected.
+- [ ] Support presenter skip/regenerate during live speech as explicit actions only.
+- [ ] Support manual done-reading/generate-next before automatic speech matching is trusted.
+- [ ] Enforce English-only generated script output.
+- [ ] Add stale-response protection for old LLM outputs.
+
+### 4. Completion and Topic Change
+
+- [ ] Match spoken phrases against the last two meaningful words of the queued script.
+- [ ] Trigger script completion and next-generation eligibility on successful match.
+- [ ] Show visible completion feedback in the shared script panel.
+- [ ] Detect topic-change/divergence from finalized speech.
+- [ ] Regenerate from latest context when the presenter intentionally goes off script.
+- [ ] Avoid replacing the visible script while the presenter is likely still reading it.
+
+### 5. Failure and Recovery
+
+- [ ] If speech recognition fails, keep typed input available.
+- [ ] If LLM generation fails, continue displaying live speech and allow regenerate.
+- [ ] If microphone permission is denied, show the manual input harness.
+
+### Outputs
+
+- Speech-first demo loop.
+- Live partial speech on the teleprompter.
+- Generated presenter script.
+- Last-two-words completion.
+- Going-off-script regeneration.
+
+### Validation
+
+- [ ] Presenter can begin by speaking without typing.
+- [ ] Spoken text appears in near real time.
+- [ ] A next paragraph is generated from spoken context.
+- [ ] The current script completes when the presenter speaks its last two meaningful words.
+- [ ] Going off script regenerates the next script from the latest context.
+- [ ] The audience-facing page continues updating if speech or LLM generation fails.
+
+## Phase 5: Glyph Scene Runtime
+
+### Objective
+
+Create the local glyph scene runtime that accepts structured visual cues or scene intents and produces immediate canvas/Pretext-ready motion. This is good-to-have presentation polish after the core real-time text and script loop works.
 
 ### 1. Scene Config Interface
 
@@ -465,7 +681,16 @@ Create the local glyph scene runtime that accepts structured visual cues or scen
 - [ ] Add fallback display when a scene config fails or is unavailable.
 - [ ] Keep optional image/SVG assets behind the same status store as delayed enhancement only.
 
-### 5. PretextJS Preparation
+### 5. Scene Timing Handoff
+
+- [ ] Accept `create_visual_cues`, `set_glyph_scene_config`, `trigger_force_field`, and `trigger_visual_at_phrase`-style tool/function calls or equivalent structured outputs.
+- [ ] Match spoken or queued generated phrases against visual cue `targetTiming`.
+- [ ] Trigger ready scene actions when the target phrase or word index is reached.
+- [ ] If a generated scene config is not ready in time, use a local fallback scene or skip the effect.
+- [ ] Start scene config generation or local scene retargeting early when paragraph text or cue data becomes usable.
+- [ ] Use paragraph pacing or light pauses in generated text to create lead time for richer optional visuals.
+
+### 6. PretextJS Preparation
 
 - [ ] Install and evaluate PretextJS in an isolated demo component.
 - [ ] Build a small text measurement spike using a fixed paragraph.
@@ -485,178 +710,19 @@ Create the local glyph scene runtime that accepts structured visual cues or scen
 
 - [ ] Running the local scene generator with a cue creates a usable scene config.
 - [ ] Generated metadata includes source phrase and intended timing.
-- [ ] Phase 3 can call the scene interface with a visual cue object.
 - [ ] Scene generation can fail without breaking the app.
 - [ ] The glyph engine can retarget scenes without resetting every particle.
-
-## Phase 3: LLM Script Generation and Scene Preloading
-
-### Objective
-
-Harden the real provider path from the MVP: generate the next paragraph and structured visual cues from live context, then prepare compact glyph scene configs or timed scene actions in the background.
-
-### 1. Context Manager Extension
-
-- [ ] Capture a global presentation brief before the session starts.
-- [ ] Include the global presentation brief in every script and display-generation request.
-- [ ] Extend the Phase 1 finalized chunk array rather than creating a second context store.
-- [ ] Keep the current finalized sentence.
-- [ ] Keep the last 3-5 finalized sentences.
-- [ ] Track generated scripts that were accepted/read.
-- [ ] Maintain a chronological recent-conversation window with speaker turns and accepted generated scripts.
-- [ ] Support an optional cached session summary only when it already exists.
-- [ ] Avoid summarization on the critical path.
-- [ ] Expose a compact context payload for provider calls.
-
-### 2. Provider Abstraction
-
-- [ ] Define a provider interface for streaming generated paragraph text.
-- [ ] Keep the real provider as the primary implementation.
-- [ ] Keep fixture/mock provider only for local UI development and test determinism.
-- [ ] Keep provider details out of UI components.
-- [ ] Support cancellation or stale-response protection if the presenter clears or skips.
-
-### 3. Streaming LLM Response Shape
-
-- [ ] Request paragraph text first.
-- [ ] Enforce English-only generated script output.
-- [ ] Include lightweight structured visual cues or scene intents in the same response.
-- [ ] Avoid a second blocking parser call.
-- [ ] Validate visual cues before creating scene configs or scene actions.
-- [ ] Use phrase match + paragraph index + optional word index for `targetTiming`.
-
-### 4. Latency and Failure Behavior
-
-- [ ] Start generation as soon as a sentence finalizes only if the script queue is empty.
-- [ ] Target first generated text within 1-2 seconds under normal conditions.
-- [ ] Target a usable paragraph within 3-5 seconds under normal conditions.
-- [ ] Retry once automatically on failure.
-- [ ] Use the Phase 1 debug flag for any visible generation delay state.
-- [ ] Keep teleprompter streaming current text during provider delay or failure.
-- [ ] Let presenter manually regenerate from controls.
-
-### 5. Scene Preloading Handoff
-
-- [ ] Convert validated visual cues into Phase 2 scene config requests or local scene actions.
-- [ ] Start scene preparation as soon as a usable cue exists.
-- [ ] Do not wait for the full paragraph if cues are available earlier.
-- [ ] Track scene states independently from paragraph generation.
-- [ ] Associate scenes/actions with generated paragraph IDs and target phrases.
-- [ ] Treat slower image/SVG generation as optional delayed enhancement, never as the live visual dependency.
-
-### 6. Script Queue
-
-- [ ] Add a generated paragraph queue with explicit states:
-  - [ ] `idle`: no queued script; finalized context may trigger generation.
-  - [ ] `generating`: a script is in flight; ignore new generation triggers.
-  - [ ] `ready`: script is visible and immutable; ignore new generation triggers.
-  - [ ] `reading`: presenter appears to be reading or has started reading; ignore new generation triggers.
-  - [ ] `consumed`: script is done; append/mark context and return to `idle`.
-- [ ] Show the next paragraph in the shared script panel.
-- [ ] Freeze generated paragraph text once visible; never replace it because new speech arrived.
-- [ ] Allow the next generation only from an explicit `Generate next` / `Done reading` action or a successful last-two-words speech match.
-- [ ] When speech matches the last two words, show a visible success state such as a brief green highlight.
-- [ ] If the presenter diverges from or ignores the generated script, treat that as skip/topic-change intent and regenerate from the latest spoken context.
-- [ ] Support explicit skip and regenerate.
-- [ ] Add a manual done-reading/generate-next control before relying on automatic speech matching.
-- [ ] In typed MVP mode, allow generated paragraphs to become context through the explicit accept/advance or done-reading control.
-- [ ] In voice mode, eventually allow generated paragraphs to become context through speech matching after the presenter reads them.
-- [ ] Treat sophisticated speech matching as an enhancement, but require simple last-two-words matching for the POC/MVP handoff.
-- [ ] Prevent stale generated paragraphs from overwriting newer presenter intent.
-
-### Outputs
-
-- Real LLM generation loop with fixture fallback for development.
-- Generated paragraph queue.
-- Structured cue extraction from the same provider response.
-- Background scene config preloading.
-
-### Validation
-
-- [ ] One finalized sentence produces a generated paragraph.
-- [ ] The paragraph appears before the presenter needs it in normal conditions.
-- [ ] At least one scene config request or local scene action starts from the generated paragraph.
-- [ ] LLM failure does not stall the visible teleprompter.
-- [ ] Scene preparation is asynchronous and non-blocking.
-
-## Phase 4: Voice-to-Action Integration
-
-### Objective
-
-Productionize the Realtime speech path proven in Phase 0.5 and combine text streaming, LLM generation, generated script queueing, and glyph scene rendering into one live presentation loop.
-
-### 1. Speech Capture
-
-- [ ] Harden the microphone permission flow from the feasibility spike.
-- [ ] Capture live audio reliably across supported browsers.
-- [ ] Stream speech-to-text partials into the teleprompter using the proven Realtime path.
-- [ ] Keep WebRTC as the default browser transport and reserve WebSockets for server-side audio pipelines.
-- [ ] Keep the backend responsible for Realtime session creation or ephemeral token minting.
-- [ ] Finalize recognized phrases or sentences into stream chunks.
-- [ ] Preserve typed input as a fallback and test harness.
-
-### 2. Voice-to-Context Loop
-
-- [ ] Send finalized speech sentences to the context manager.
-- [ ] Trigger text-only script planning responses from finalized or stable speech only when the script queue is `idle`.
-- [ ] Use out-of-band/custom-context responses where useful so planning output does not pollute the live conversation state.
-- [ ] Keep partial speech rendering immediate and independent from LLM state.
-- [ ] Use a separate fast display-extraction response to turn finalized speech into an English slide-like display phrase with structured emphasis.
-- [ ] Handle speech recognition interruptions without clearing context.
-
-### 3. Generated Script Delivery
-
-- [ ] Queue generated next paragraph for presenter reading in the same shared UI.
-- [ ] Accept `queue_next_paragraph`-style tool/function calls or equivalent structured outputs.
-- [ ] Keep the queued generated script immutable until the presenter skips it, regenerates intentionally, or marks it done.
-- [ ] Keep generated script in the shared script panel, distinct from the main large teleprompter text, until spoken or explicitly injected.
-- [ ] Support presenter skip/regenerate during live speech as explicit actions only.
-- [ ] Support manual done-reading/generate-next before automatic speech matching is trusted.
-- [ ] Enforce English-only generated script output.
-- [ ] Add stale-response protection for old LLM outputs.
-
-### 4. Visual Timing
-
-- [ ] Accept `create_visual_cues`, `set_glyph_scene_config`, `trigger_force_field`, and `trigger_visual_at_phrase`-style tool/function calls or equivalent structured outputs.
-- [ ] Match spoken or queued generated phrases against visual cue `targetTiming`.
-- [ ] Trigger ready scene actions when the target phrase or word index is reached.
-- [ ] If a generated scene config is not ready in time, use a local fallback scene or skip the effect.
-- [ ] Start scene config generation or local scene retargeting early when paragraph text or cue data becomes usable.
-- [ ] Use paragraph pacing or light pauses in generated text to create lead time for richer optional visuals.
-
-### 5. Failure and Recovery
-
-- [ ] If speech recognition fails, keep typed input available.
-- [ ] If LLM generation fails, continue displaying live speech and allow regenerate.
-- [ ] If scene config generation fails, continue text rendering and keep or switch to a local fallback scene.
-- [ ] If optional delayed image/SVG generation fails, continue text rendering and mark the asset failed.
-- [ ] If microphone permission is denied, show the manual input harness.
-
-### Outputs
-
-- Speech-first demo loop.
-- Live partial speech on the teleprompter.
-- Generated presenter script.
-- Background scene config generation and timed glyph rendering.
-
-### Validation
-
-- [ ] Presenter can begin by speaking without typing.
-- [ ] Spoken text appears in near real time.
-- [ ] A next paragraph is generated from spoken context.
-- [ ] Glyph scene preparation begins before the relevant generated sentence is spoken.
-- [ ] The audience-facing page continues updating if speech, LLM, one scene action, or one optional asset job fails.
 
 ## Rendering Enhancements Track
 
 ### Objective
 
-Layer richer PretextJS and experimental HTML-in-Canvas interactions onto the Phase 2 glyph scene runtime without compromising readability.
+Layer richer PretextJS and experimental HTML-in-Canvas interactions onto the Phase 5 glyph scene runtime without compromising readability.
 
 ### Subtasks
 
-- [ ] Extend the Phase 2 canvas glyph layer above or below DOM text.
-- [ ] Reuse the PretextJS spike from Phase 2 when implementing per-letter home positions and physics effects.
+- [ ] Extend the Phase 5 canvas glyph layer above or below DOM text.
+- [ ] Reuse the PretextJS spike from Phase 5 when implementing per-letter home positions and physics effects.
 - [ ] Implement rendering capability detection:
   - [ ] Canvas support.
   - [ ] PretextJS availability.
@@ -753,16 +819,18 @@ Cached input pricing should be leveraged aggressively since the rolling context 
 
 ## Suggested Build Order
 
-0. Spike mode: fast proof of Realtime API, WebRTC text display, and context-to-glyph-scene latency.
+0. Spike mode: fast proof of Realtime API, WebRTC text display, and script generation latency.
 1. Phase 0 minimal project bootstrap.
 2. Phase 0.5 Realtime LLM feasibility spike with real speech and real generation, refined from spike learnings.
 3. Phase 1 DOM teleprompter using the real transcription stream, with manual fixture fallback.
 4. MVP slice with real speech, real LLM generation, shared script panel, and latency logging.
-5. Phase 2 glyph scene runtime and local scene config interface.
-6. Phase 3 provider hardening, script queue, stale-response handling, scene preloading, and failure recovery.
-7. Rendering enhancements with PretextJS and optional HTML-in-Canvas.
-8. Persistence beyond in-memory state, only after MVP usage shows what needs to be retained.
-9. Optional separate presenter/audience views, only after the shared UI proves insufficient.
+5. Phase 2 text and script loop hardening: summarized big text, meaningful emphasis, immutable current script, last-two-words completion, and going-off-script regeneration.
+6. Phase 3 provider hardening, script queue, stale-response handling, and failure recovery.
+7. Phase 4 voice-to-action integration for the reliable text/script loop.
+8. Phase 5 glyph scene runtime and local scene config interface.
+9. Rendering enhancements with PretextJS and optional HTML-in-Canvas.
+10. Persistence beyond in-memory state, only after MVP usage shows what needs to be retained.
+11. Optional separate presenter/audience views, only after the shared UI proves insufficient.
 
 ## First Milestone
 
@@ -778,8 +846,8 @@ The first useful milestone is:
 - A manual done-reading/generate-next control and last-two-words speech match gate subsequent script generation.
 - Diverging from the generated script can intentionally trigger regeneration from the new topic/context.
 - A global presentation brief and recent conversation context improve script relevance.
-- A glyph scene config request or local scene action starts from received context or generated paragraph text.
-- Timing logs show speech partials, sentence finalization, LLM start, first generated text, usable paragraph completion, scene request start, and scene readiness.
+- Visual/glyph work is not part of this milestone; it starts only after the text/script loop is reliable.
+- Timing logs show speech partials, sentence finalization, LLM start, first generated text, and usable paragraph completion.
 - Target latency is 1-2 seconds to first generated text and 3-5 seconds to a usable paragraph under normal conditions.
 - The text stream continues if generation is late or fails.
 - The UI can be minimal: debug transcript, generated script preview, and latency measurements.

@@ -100,17 +100,19 @@ const referenceLayoutVariants: ReferenceLayoutVariant[] = [
   'text-right-art-left',
   'text-top-art-bottom',
 ]
+const hiddenControlsReferenceLayoutVariants: ReferenceLayoutVariant[] = [
+  'text-right-art-left',
+  'text-top-art-bottom',
+]
 const defaultAudienceText = 'The Presentation'
 const maxPlanningRetries = 1
 const storyBeatIdeas = [
-  'set up the promise in one clear line',
-  'show what the audience sees on screen',
-  'explain how speech becomes a clean headline',
-  'show how the next line helps the presenter keep moving',
-  'bring in a fun visual moment, prop, or scene',
-  'show a product example or live demo example',
-  'handle a surprise topic change and make it feel intentional',
-  'wrap the demo with a simple audience takeaway',
+  'continue from the speaker topic with one specific next point',
+  'add a concrete example connected to the speaker topic',
+  'show what the audience can notice next',
+  'make one playful or visual moment from the topic',
+  'connect the topic back to the live presentation',
+  'wrap the topic with a simple takeaway',
 ]
 const defaultSpeechSignals: SpeechSignals = {
   volume: 0,
@@ -371,6 +373,26 @@ function isProbablyEnglish(value: string) {
   const hasBlockedScript = blockedScriptRanges.some((pattern) => pattern.test(text))
 
   return latinChars >= 2 && !hasBlockedScript
+}
+
+function isPresenterScript(value: string) {
+  const text = normalizeSpaces(value).toLowerCase()
+  const blockedPatterns = [
+    /\bin one line\b/,
+    /\bthe promise is simple\b/,
+    /\bhere'?s? the payoff\b/,
+    /\bthat is the payoff\b/,
+    /\bthe point is\b/,
+    /\bwhat this means is\b/,
+    /\byou can still follow\b/,
+    /\bwithout guessing my point\b/,
+    /\bthe next line stays clear\b/,
+    /\bfor the room\b/,
+    /\blive crowd\b/,
+    /\baudience payoff\b/,
+  ]
+
+  return !blockedPatterns.some((pattern) => pattern.test(text))
 }
 
 function createLocalDisplay(text: string, sourceChunkId?: string): AudienceDisplay {
@@ -817,8 +839,9 @@ function App() {
     const skippedScripts = skippedScriptsRef.current.slice(-3)
     const topicDrift = topicDriftRef.current.slice(-3)
     const deliveredCount = acceptedScripts.length
+    const isFirstGeneratedScript = acceptedScripts.length === 0 && skippedScripts.length === 0
     const suggestedBeat = topicDrift.length
-      ? 'bridge the latest user topic back to the main presentation'
+      ? 'follow the latest user topic directly, then lightly connect it back to the talk'
       : nextStoryBeat(deliveredCount)
     const visualInstructions = experimentalAsciiVisuals
       ? [
@@ -837,10 +860,17 @@ function App() {
     return [
       'You are writing the next thing I should say in an improvised live demo.',
       `This is beat ${deliveredCount + 1} of the talk. Continue the presentation from what was already said.`,
-      `The next story job is: ${suggestedBeat}.`,
+      isFirstGeneratedScript
+        ? 'This is the first generated script. Start directly with the current speaker topic. Do not open with a generic promise, payoff, thesis, setup, or meta explanation.'
+        : `The next story job is: ${suggestedBeat}.`,
       'Do not restart the demo. Do not recap the same idea in new words.',
+      'Do not use stock openings like "In one line", "The promise is simple", "Here is the payoff", "The point is", or "What this means is".',
+      'If the speaker says "I want to talk about birds", the next script should start by talking about birds, not by explaining the presentation system.',
+      'The paragraph is not a summary, analysis, explanation, or system message. It is a direct script for me, the presenter, to read out loud word for word.',
+      'Write in first person where natural. Use lines I can say directly, such as "Let me start with birds." or "Birds are a great example because..."',
+      'Do not talk about "the room", "the audience", "the crowd", "the presenter", "the script", "the next line", or "the system" unless I explicitly ask to discuss those things.',
       'Do not repeat accepted/read generated scripts, skipped scripts, or the latest speaker transcript.',
-      'Move the story forward by adding one new concrete beat: a quick example, a product moment, a playful surprise, a live audience payoff, or a simple closing step.',
+      'Move the story forward by adding one new concrete beat: a quick example, a product moment, a playful surprise, or a simple closing step.',
       'Think of the flow as A then B then C then D. If B was just delivered, C must be a new next topic, not another version of B.',
       'If the last script mentioned text, voice, glyphs, or the living demo, the next script should add a new angle instead of saying those same benefits again.',
       'Write like a friendly person talking on stage, not like a product document.',
@@ -848,11 +878,11 @@ function App() {
       'Keep it casual, fun, and demo-like. It should sound natural when spoken.',
       'Use short sentences. Prefer clear words over clever words.',
       'Avoid jargon, buzzwords, dense technical terms, long clauses, and tongue-twister phrases.',
-      'Do not say things like leverage, enable, facilitate, optimize, paradigm, robust, seamless, architecture, pipeline, interface, infrastructure, orchestration, or stakeholders unless the presenter already said that exact word.',
+      'Do not say things like riff, payoff, crowd, room, leverage, enable, facilitate, optimize, paradigm, robust, seamless, architecture, pipeline, interface, infrastructure, orchestration, or stakeholders unless the presenter already said that exact word.',
       'Use the presentation goal and recent transcript. Stay specific to the speaker topic.',
       'If the presenter went off script, follow the latest spoken topic instead of forcing the old script.',
       'Write in English only. If recent transcript contains non-English text, translate or summarize its meaning in simple English; never copy non-English words or characters.',
-      'Return one short spoken paragraph first, about 2-4 short sentences. No bullets and no label before the paragraph.',
+      'Return one short spoken paragraph first, about 2-4 short sentences. No bullets and no label before the paragraph. Every sentence must be something I can literally read aloud.',
       ...visualInstructions,
       '',
       `Presentation goal:\n${presentationBriefRef.current || '(no explicit brief)'}`,
@@ -1048,9 +1078,14 @@ function App() {
 
         setVisualReferences(payload.references || [])
         if (readyReferenceExists) {
+          const layoutOptions =
+            overlayVisible || !scriptOverlayVisible || !paragraph.text
+              ? referenceLayoutVariants
+              : hiddenControlsReferenceLayoutVariants
+
           setReferenceLayoutVariant(
-            referenceLayoutVariants[
-              Math.floor(Math.random() * referenceLayoutVariants.length)
+            layoutOptions[
+              Math.floor(Math.random() * layoutOptions.length)
             ],
           )
         }
@@ -1069,7 +1104,7 @@ function App() {
         mark('visual references failed', message)
       }
     },
-    [mark],
+    [mark, overlayVisible, scriptOverlayVisible],
   )
 
   const applySpokenScene = useCallback(
@@ -1149,10 +1184,10 @@ function App() {
       const visualCues = parseVisualCues(split.visualCueText)
       const visualQuery = normalizeSpaces(split.visualQuery)
 
-      if (!paragraph || !isProbablyEnglish(paragraph)) {
+      if (!paragraph || !isProbablyEnglish(paragraph) || !isPresenterScript(paragraph)) {
         cleanupPlanningResponse(responseId)
         failOrRetryPlanning(
-          'Planning response finished without usable English paragraph text.',
+          'Planning response finished without usable presenter script text.',
         )
         return
       }
@@ -1337,7 +1372,9 @@ function App() {
 
         partialByItemRef.current.delete(itemId)
         setPartialTranscript(
-          Array.from(partialByItemRef.current.values()).join(' ').trim(),
+          streamPausedRef.current
+            ? ''
+            : Array.from(partialByItemRef.current.values()).join(' ').trim(),
         )
 
         if (!transcript || streamPausedRef.current) return
@@ -1441,15 +1478,33 @@ function App() {
     handlesRef.current?.stream.getTracks().forEach((track) => track.stop())
     handlesRef.current = null
     partialByItemRef.current.clear()
+    streamPausedRef.current = false
   }, [])
 
   const stopRealtime = useCallback(() => {
     closeRealtimeHandles()
     setPartialTranscript('')
+    setStreamPaused(false)
     setConnectionState('idle')
     setStatus('Stopped.')
     mark('session stopped')
   }, [closeRealtimeHandles, mark])
+
+  const setMicrophonePaused = useCallback(
+    (paused: boolean) => {
+      const stream = handlesRef.current?.stream
+
+      stream?.getAudioTracks().forEach((track) => {
+        track.enabled = !paused
+      })
+      streamPausedRef.current = paused
+      partialByItemRef.current.clear()
+      setPartialTranscript('')
+      setStreamPaused(paused)
+      mark(paused ? 'microphone paused' : 'microphone resumed')
+    },
+    [mark],
+  )
 
   const startRealtime = useCallback(async () => {
     try {
@@ -1480,6 +1535,8 @@ function App() {
 
       const channel = peer.createDataChannel('oai-events')
       handlesRef.current = { peer, channel, stream }
+      streamPausedRef.current = false
+      setStreamPaused(false)
 
       channel.addEventListener('open', () => {
         mark('data channel open')
@@ -1710,7 +1767,8 @@ function App() {
               <button
                 type="button"
                 className="icon-button secondary"
-                onClick={() => setStreamPaused((current) => !current)}
+                onClick={() => setMicrophonePaused(!streamPaused)}
+                disabled={connectionState !== 'listening'}
                 aria-label={streamPaused ? 'Resume streaming' : 'Pause streaming'}
                 title={streamPaused ? 'Resume streaming' : 'Pause streaming'}
               >

@@ -1,73 +1,63 @@
-# React + TypeScript + Vite
+# Living Teleprompter MVP
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + Vite + TypeScript foundation for the productionized MVP.
 
-Currently, two official plugins are available:
+## Run The App Shell
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Open:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```text
+http://127.0.0.1:5173
 ```
+
+The app currently loads deterministic Phase 0 fixtures from `src/teleprompter/fixtures.ts`.
+
+## Realtime Session Endpoint
+
+The browser must never receive `OPENAI_API_KEY`. The MVP includes a small Node server with:
+
+```text
+POST /api/realtime/session
+GET /api/config
+```
+
+To run the built app with the backend endpoint:
+
+```bash
+cp .env.example .env
+# edit .env in your shell or export the variables before running
+npm run build
+OPENAI_API_KEY=sk-... npm run server
+```
+
+Open:
+
+```text
+http://localhost:4173
+```
+
+## Environment
+
+```bash
+OPENAI_API_KEY=sk-...
+OPENAI_REALTIME_MODEL=gpt-realtime-2
+OPENAI_TRANSCRIPTION_MODEL=gpt-realtime-whisper
+PORT=4173
+VITE_REALTIME_SESSION_PATH=/api/realtime/session
+VITE_APP_CONFIG_PATH=/api/config
+```
+
+`.env` and `.env.*` are ignored. Keep real credentials out of git.
+
+## Phase 0 Foundation
+
+- React + Vite + TypeScript app shell.
+- Baseline `dev`, `build`, `preview`, `lint`, and `server` scripts.
+- Typed stream, generated paragraph, and visual cue models.
+- Deterministic fixtures with typed input, generated paragraphs, and glyph scene cues.
+- Browser-safe backend path for OpenAI Realtime session creation.

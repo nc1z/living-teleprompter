@@ -238,17 +238,17 @@ Create only the minimum foundation needed to run a real Realtime/LLM feasibility
 
 ### Subtasks
 
-- [ ] Initialize a React + Vite + TypeScript app.
-- [ ] Add baseline scripts for `dev`, `build`, `preview`, and linting if practical.
-- [ ] Create folders only as features need them.
-- [ ] Define the first typed models inside the feature code that consumes them.
-- [ ] Add environment configuration for real OpenAI Realtime/LLM credentials without committing secrets.
-- [ ] Add a minimal backend endpoint for creating a Realtime session or ephemeral client token.
-- [ ] Add deterministic demo fixtures for local development:
-  - [ ] 2-3 typed input sentences.
-  - [ ] 1-2 mock generated paragraphs.
-  - [ ] 1 mock visual cue tied to a phrase in a generated paragraph.
-- [ ] Add basic README instructions for running the app locally.
+- [x] Initialize a React + Vite + TypeScript app.
+- [x] Add baseline scripts for `dev`, `build`, `preview`, and linting if practical.
+- [x] Create folders only as features need them.
+- [x] Define the first typed models inside the feature code that consumes them.
+- [x] Add environment configuration for real OpenAI Realtime/LLM credentials without committing secrets.
+- [x] Add a minimal backend endpoint for creating a Realtime session or ephemeral client token.
+- [x] Add deterministic demo fixtures for local development:
+  - [x] 2-3 typed input sentences.
+  - [x] 1-2 mock generated paragraphs.
+  - [x] 1 mock visual cue tied to a phrase in a generated paragraph.
+- [x] Add basic README instructions for running the app locally.
 
 ### Outputs
 
@@ -260,11 +260,11 @@ Create only the minimum foundation needed to run a real Realtime/LLM feasibility
 
 ### Validation
 
-- [ ] App starts locally.
-- [ ] TypeScript compiles.
-- [ ] Demo fixture data can be imported without API keys.
-- [ ] Real provider credentials can be configured locally without being checked into source control.
-- [ ] Browser code does not require a standard OpenAI API key.
+- [x] App starts locally.
+- [x] TypeScript compiles.
+- [x] Demo fixture data can be imported without API keys.
+- [x] Real provider credentials can be configured locally without being checked into source control.
+- [x] Browser code does not require a standard OpenAI API key.
 
 ## Phase 0.5: Realtime LLM Feasibility Spike
 

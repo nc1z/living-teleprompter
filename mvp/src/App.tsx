@@ -6,7 +6,6 @@ import type { GeneratedParagraph, StreamChunk, StreamSource, VisualCue } from '.
 
 type PlanningState = 'idle' | 'generating' | 'ready' | 'failed'
 type ConnectionState = 'idle' | 'connecting' | 'listening' | 'error'
-type DemoState = 'idle' | 'streaming' | 'paused'
 type DisplayTone = 'green' | 'blue' | 'red' | 'gold'
 
 type TimingEntry = {
@@ -52,8 +51,6 @@ type RealtimeHandles = {
 }
 
 const visualCueMarker = '---VISUAL_CUES_JSON---'
-const demoSentence =
-  'This living teleprompter turns improvisation into a clean stage moment while the next idea waits off screen.'
 const stopWords = new Set([
   'a',
   'an',
@@ -258,10 +255,7 @@ function App() {
     phaseZeroFixture.presentationBrief,
   )
   const [partialTranscript, setPartialTranscript] = useState('')
-  const [demoPartial, setDemoPartial] = useState('')
-  const [demoState, setDemoState] = useState<DemoState>('idle')
-  const [manualText, setManualText] = useState('')
-  const [finalizedChunks, setFinalizedChunks] = useState<StreamChunk[]>(
+  const [, setFinalizedChunks] = useState<StreamChunk[]>(
     phaseZeroFixture.typedInput,
   )
   const [audienceDisplay, setAudienceDisplay] = useState<AudienceDisplay>(initialDisplay)
@@ -294,9 +288,6 @@ function App() {
   const planningStateRef = useRef<PlanningState>('idle')
   const presentationBriefRef = useRef(presentationBrief)
   const streamPausedRef = useRef(false)
-  const demoWordsRef = useRef<string[]>([])
-  const demoIndexRef = useRef(0)
-  const demoTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     planningStateRef.current = planningState
@@ -313,13 +304,6 @@ function App() {
   useEffect(() => {
     audienceDisplayRef.current = audienceDisplay
   }, [audienceDisplay])
-
-  const stopDemoTimer = useCallback(() => {
-    if (demoTimerRef.current != null) {
-      window.clearInterval(demoTimerRef.current)
-      demoTimerRef.current = null
-    }
-  }, [])
 
   const mark = useCallback((label: string, detail?: string) => {
     timingIdRef.current += 1
@@ -828,49 +812,6 @@ function App() {
     }
   }, [closeRealtimeHandles, configureSession, handleServerEvent, mark, stopRealtime])
 
-  const submitManualText = useCallback(() => {
-    const chunk = appendFinalizedChunk(manualText, 'typed')
-
-    if (chunk) {
-      setManualText('')
-    }
-  }, [appendFinalizedChunk, manualText])
-
-  const finalizeDemoStream = useCallback(() => {
-    stopDemoTimer()
-    const text = demoWordsRef.current.join(' ')
-    setDemoPartial('')
-    setDemoState('idle')
-    appendFinalizedChunk(text, 'typed')
-  }, [appendFinalizedChunk, stopDemoTimer])
-
-  const startDemoStream = useCallback(() => {
-    if (demoState === 'paused' && demoWordsRef.current.length) {
-      setDemoState('streaming')
-    } else {
-      demoWordsRef.current = demoSentence.split(' ')
-      demoIndexRef.current = 0
-      setDemoPartial('')
-      setDemoState('streaming')
-    }
-
-    stopDemoTimer()
-    demoTimerRef.current = window.setInterval(() => {
-      const nextIndex = demoIndexRef.current + 1
-      demoIndexRef.current = nextIndex
-      setDemoPartial(demoWordsRef.current.slice(0, nextIndex).join(' '))
-
-      if (nextIndex >= demoWordsRef.current.length) {
-        finalizeDemoStream()
-      }
-    }, 140)
-  }, [demoState, finalizeDemoStream, stopDemoTimer])
-
-  const pauseDemoStream = useCallback(() => {
-    stopDemoTimer()
-    setDemoState('paused')
-  }, [stopDemoTimer])
-
   const skipCurrentScript = useCallback(() => {
     hasGeneratedRef.current = false
     planningStateRef.current = 'idle'
@@ -904,11 +845,7 @@ function App() {
   }, [appendFinalizedChunk, generatedParagraph, requestPlanning, skipCurrentScript])
 
   const clearSession = useCallback(() => {
-    stopDemoTimer()
-    setDemoState('idle')
-    setDemoPartial('')
     setPartialTranscript('')
-    setManualText('')
     finalizedChunksRef.current = []
     finalizedTextRef.current = ''
     hasGeneratedRef.current = false
@@ -922,19 +859,16 @@ function App() {
     setTimings([])
     setLastError('')
     mark('session cleared')
-  }, [mark, stopDemoTimer])
+  }, [mark])
 
   useEffect(() => {
     return () => {
       closeRealtimeHandles()
-      stopDemoTimer()
     }
-  }, [closeRealtimeHandles, stopDemoTimer])
+  }, [closeRealtimeHandles])
 
   const canGenerate = connectionState === 'listening' && planningState !== 'generating'
   const visibleScript = planningDraft || generatedParagraph?.text || ''
-  const cue = generatedParagraph?.visualCues[0]
-  const livePartial = partialTranscript || demoPartial
   const emphasisSet = new Set(audienceDisplay.emphasis.map(normalizeDisplayWord))
 
   return (
@@ -952,8 +886,8 @@ function App() {
             )
           })}
         </p>
-        <p className={`live-transcript ${livePartial ? 'active' : ''}`}>
-          {livePartial || 'listening text appears here'}
+        <p className={`live-transcript ${partialTranscript ? 'active' : ''}`}>
+          {partialTranscript || 'listening text appears here'}
         </p>
       </section>
 
@@ -1011,6 +945,22 @@ function App() {
               >
                 {streamPaused ? 'Resume' : 'Pause'}
               </button>
+              <button
+                type="button"
+                className="icon-button secondary"
+                onClick={clearSession}
+                aria-label="Clear session"
+                title="Clear session"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => setDebugVisible((current) => !current)}
+              >
+                {debugVisible ? 'Hide debug' : 'Debug'}
+              </button>
             </div>
             {lastError ? <p className="error-text">{lastError}</p> : null}
           </section>
@@ -1057,60 +1007,6 @@ function App() {
                 Accept
               </button>
             </div>
-          </section>
-
-          <section>
-            <h2>Manual input</h2>
-            <textarea
-              value={manualText}
-              onChange={(event) => setManualText(event.target.value)}
-              rows={3}
-              placeholder="Type a sentence for local UI testing"
-            />
-            <div className="button-row">
-              <button type="button" onClick={submitManualText} disabled={!manualText.trim()}>
-                Add sentence
-              </button>
-              <button
-                type="button"
-                onClick={demoState === 'streaming' ? pauseDemoStream : startDemoStream}
-              >
-                {demoState === 'streaming' ? 'Pause demo' : 'Start demo'}
-              </button>
-              <button type="button" onClick={clearSession}>
-                Clear
-              </button>
-            </div>
-          </section>
-
-          <section className="system-grid">
-            <div>
-              <h2>Endpoint</h2>
-              <code>{clientConfig.realtimeSessionPath}</code>
-            </div>
-            <div>
-              <h2>Visual cue</h2>
-              <code>{cue?.sceneType || 'waiting'}</code>
-              <p>{cue?.phrase || 'No cue received yet.'}</p>
-            </div>
-          </section>
-
-          <section>
-            <div className="section-heading-row">
-              <h2>Finalized context</h2>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => setDebugVisible((current) => !current)}
-              >
-                {debugVisible ? 'Hide debug' : 'Debug'}
-              </button>
-            </div>
-            <ol className="chunk-list">
-              {finalizedChunks.slice(-5).map((chunk) => (
-                <li key={chunk.id}>{chunk.text}</li>
-              ))}
-            </ol>
           </section>
 
           {debugVisible ? (

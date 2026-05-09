@@ -135,7 +135,7 @@ export type GeneratedParagraph = {
   text: string
   createdAt: string
   visualCues: VisualCue[]
-  asciiArt?: string
+  visualQuery?: string
 }
 
 export type DemoFixture = {

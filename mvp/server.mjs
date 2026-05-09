@@ -41,6 +41,7 @@ const TRANSCRIPTION_MODEL =
   process.env.OPENAI_TRANSCRIPTION_MODEL || 'gpt-realtime-whisper'
 const GLYPH_SCENE_GENERATOR = process.env.GLYPH_SCENE_GENERATOR || 'off'
 const GLYPH_SCENE_TIMEOUT_MS = Number(process.env.GLYPH_SCENE_TIMEOUT_MS || 25000)
+const ASCII_ART_BASE_URL = 'https://www.asciiart.eu'
 
 const contentTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -123,6 +124,149 @@ function parseFirstJsonObject(value) {
   }
 
   return JSON.parse(value.slice(start, end + 1))
+}
+
+function decodeHtml(value) {
+  return String(value || '')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+}
+
+function stripTags(value) {
+  return decodeHtml(String(value || '').replace(/<[^>]*>/g, ' '))
+}
+
+function normalizeReferenceQuery(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter((word) => word.length > 1)
+    .slice(0, 5)
+    .join(' ')
+}
+
+function compactAsciiArt(value) {
+  const lines = decodeHtml(value)
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => line.replace(/\s+$/g, ''))
+  const first = lines.findIndex((line) => line.trim())
+  const last = lines.findLastIndex((line) => line.trim())
+
+  if (first === -1 || last === -1) return ''
+
+  return lines.slice(first, last + 1).slice(0, 24).join('\n')
+}
+
+async function fetchAsciiArtReference(query) {
+  const normalizedQuery = normalizeReferenceQuery(query)
+
+  if (!normalizedQuery) {
+    return {
+      provider: 'asciiart.eu',
+      status: 'missing',
+      message: 'No visual query.',
+    }
+  }
+
+  const url = `${ASCII_ART_BASE_URL}/search?q=${encodeURIComponent(normalizedQuery)}`
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': 'living-teleprompter/0.1 visual reference comparison',
+    },
+  })
+
+  if (!response.ok) {
+    return {
+      provider: 'asciiart.eu',
+      status: 'failed',
+      query: normalizedQuery,
+      url,
+      message: `asciiart.eu returned ${response.status}`,
+    }
+  }
+
+  const html = await response.text()
+  const cardPattern =
+    /<div class="card art-card[\s\S]*?data-title="([^"]*)"[\s\S]*?data-artist="([^"]*)"[\s\S]*?data-height="([^"]*)"[\s\S]*?data-width="([^"]*)"[\s\S]*?<div class="art-card__ascii">([\s\S]*?)<\/div>/g
+  const cards = [...html.matchAll(cardPattern)]
+    .map((match) => {
+      const art = compactAsciiArt(match[5])
+
+      return {
+        title: decodeHtml(match[1] || 'ASCII art'),
+        artist: decodeHtml(match[2] || 'unknown'),
+        height: Number(match[3] || 0),
+        width: Number(match[4] || 0),
+        art,
+      }
+    })
+    .filter((card) => card.art)
+    .sort((a, b) => {
+      const aArea = a.width * a.height
+      const bArea = b.width * b.height
+
+      return bArea - aArea
+    })
+
+  const selected = cards[0]
+
+  if (!selected) {
+    return {
+      provider: 'asciiart.eu',
+      status: 'missing',
+      query: normalizedQuery,
+      url,
+      message: 'No ASCII reference found.',
+    }
+  }
+
+  return {
+    provider: 'asciiart.eu',
+    status: 'ready',
+    query: normalizedQuery,
+    title: selected.title,
+    artist: selected.artist,
+    art: selected.art,
+    width: selected.width,
+    height: selected.height,
+    url,
+    credit: `${selected.title} by ${selected.artist} via ASCII Art Archive`,
+  }
+}
+
+async function createVisualReferences(req, res) {
+  const body = JSON.parse(await readRequestBody(req))
+  const query = body.visualQuery || body.topic || body.paragraph || ''
+  let reference
+
+  try {
+    reference = await fetchAsciiArtReference(query)
+  } catch (error) {
+    reference = {
+      provider: 'asciiart.eu',
+      status: 'failed',
+      message: error instanceof Error ? error.message : String(error),
+    }
+  }
+
+  send(
+    res,
+    200,
+    JSON.stringify({
+      query: normalizeReferenceQuery(query),
+      references: [reference],
+    }),
+    'application/json; charset=utf-8',
+  )
 }
 
 function validateGeneratedScene(candidate, fallback) {
@@ -387,6 +531,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && req.url === '/api/glyph-scene') {
       await createGlyphScene(req, res)
+      return
+    }
+
+    if (req.method === 'POST' && req.url === '/api/visual-references') {
+      await createVisualReferences(req, res)
       return
     }
 

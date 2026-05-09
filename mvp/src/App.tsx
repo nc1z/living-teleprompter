@@ -49,6 +49,18 @@ type AudienceDisplay = {
   sourceChunkId?: string
 }
 
+type VisualReference = {
+  provider: 'asciiart.eu'
+  status: 'ready' | 'missing' | 'missing-key' | 'failed'
+  query?: string
+  title?: string
+  artist?: string
+  art?: string
+  url?: string
+  credit?: string
+  message?: string
+}
+
 type ServerEvent = {
   type?: string
   delta?: string
@@ -78,7 +90,7 @@ type RealtimeHandles = {
 }
 
 const visualCueMarker = '---VISUAL_CUES_JSON---'
-const asciiArtMarker = '---ASCII_ART_TEXT---'
+const visualQueryMarker = '---VISUAL_SEARCH_QUERY---'
 const experimentalAsciiVisuals =
   import.meta.env.VITE_EXPERIMENTAL_ASCII_VISUALS !== 'false'
 const maxPlanningRetries = 1
@@ -171,57 +183,49 @@ function textFromResponseDone(event: ServerEvent) {
 
 function splitPlanningResponse(text: string) {
   const visualMarkerIndex = text.indexOf(visualCueMarker)
-  const asciiMarkerIndex = text.indexOf(asciiArtMarker)
-  const markerIndexes = [visualMarkerIndex, asciiMarkerIndex].filter((index) => index !== -1)
+  const queryMarkerIndex = text.indexOf(visualQueryMarker)
+  const markerIndexes = [visualMarkerIndex, queryMarkerIndex].filter((index) => index !== -1)
   const firstMarkerIndex = markerIndexes.length ? Math.min(...markerIndexes) : -1
 
   if (firstMarkerIndex === -1) {
     return {
       paragraph: text.trim(),
       visualCueText: '',
-      asciiArt: '',
+      visualQuery: '',
     }
   }
 
-  const visualCueText =
+  const rangeAfterMarker = (markerIndex: number, markerLength: number) => {
+    const start = markerIndex + markerLength
+    const laterMarkers = markerIndexes.filter((index) => index > markerIndex)
+
+    return {
+      start,
+      end: laterMarkers.length ? Math.min(...laterMarkers) : undefined,
+    }
+  }
+  const visualRange =
     visualMarkerIndex === -1
-      ? ''
-      : text
-          .slice(
-            visualMarkerIndex + visualCueMarker.length,
-            asciiMarkerIndex > visualMarkerIndex ? asciiMarkerIndex : undefined,
-          )
-          .trim()
-  const asciiArt =
-    asciiMarkerIndex === -1
-      ? ''
-      : text
-          .slice(
-            asciiMarkerIndex + asciiArtMarker.length,
-            visualMarkerIndex > asciiMarkerIndex ? visualMarkerIndex : undefined,
-          )
-          .trim()
+      ? null
+      : rangeAfterMarker(visualMarkerIndex, visualCueMarker.length)
+  const queryRange =
+    queryMarkerIndex === -1
+      ? null
+      : rangeAfterMarker(queryMarkerIndex, visualQueryMarker.length)
+  const visualCueText =
+    visualRange === null ? '' : text.slice(visualRange.start, visualRange.end).trim()
+  const visualQuery =
+    queryRange === null ? '' : normalizeSpaces(text.slice(queryRange.start, queryRange.end))
 
   return {
     paragraph: text.slice(0, firstMarkerIndex).trim(),
     visualCueText,
-    asciiArt,
+    visualQuery,
   }
 }
 
 function stripJsonFence(raw: string) {
   return raw.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()
-}
-
-function normalizeAsciiArt(raw: string) {
-  return raw
-    .replace(/^```(?:ascii|text)?/i, '')
-    .replace(/```$/i, '')
-    .split(/\r?\n/)
-    .map((line) => line.replace(/[^\x20-\x7e]/g, '').slice(0, 74).replace(/\s+$/g, ''))
-    .filter((line) => line.trim())
-    .slice(0, 18)
-    .join('\n')
 }
 
 function normalizeDisplayWord(value: string) {
@@ -538,7 +542,7 @@ function App() {
     useState<GlyphSceneConfig>(initialScene)
   const [speechSignals, setSpeechSignals] =
     useState<SpeechSignals>(defaultSpeechSignals)
-  const [asciiArt, setAsciiArt] = useState('')
+  const [visualReferences, setVisualReferences] = useState<VisualReference[]>([])
 
   const handlesRef = useRef<RealtimeHandles | null>(null)
   const partialByItemRef = useRef(new Map<string, string>())
@@ -788,11 +792,10 @@ function App() {
       : nextStoryBeat(deliveredCount)
     const visualInstructions = experimentalAsciiVisuals
       ? [
-          'After the paragraph, include a newline, the exact marker ---ASCII_ART_TEXT---, then ASCII art only.',
-          'The ASCII art should be a single clear creature, object, product, plant, place, or visual prop from the next paragraph or latest speaker topic.',
-          'Use only plain ASCII characters, spaces, and newlines. No Unicode blocks, emojis, captions, labels, markdown fences, or words inside the art.',
-          'Keep it 8-16 lines tall and 24-64 columns wide. Make the silhouette readable at a glance.',
-          'If the topic is a product like a drink, draw the product. If it is nature, draw the tree, plant, mountain, or scene object. If it is a creature, draw the creature.',
+          'After the paragraph, include a newline, the exact marker ---VISUAL_SEARCH_QUERY---, then one short concrete visual search phrase of 1-4 words.',
+          'The visual search phrase should name one clear creature, object, product, plant, place, or visual prop from the next paragraph or latest speaker topic.',
+          'Prefer words likely to exist in an ASCII art archive, such as horse, tree, plants, drink, robot, apple, forest, can, flower, mountain, or stage.',
+          'Do not generate ASCII art yourself. The app will fetch a credited reference from ASCII Art Archive.',
         ]
       : [
           'After the paragraph, include a newline, the exact marker ---VISUAL_CUES_JSON---, then strict JSON for 1-2 lightweight visual cues.',
@@ -962,10 +965,7 @@ function App() {
   const applyGeneratedScene = useCallback(
     (paragraph: GeneratedParagraph) => {
       if (experimentalAsciiVisuals) {
-        const art = normalizeAsciiArt(paragraph.asciiArt || '')
-
-        setAsciiArt(art)
-        mark(art ? 'ascii visual ready' : 'ascii visual missing', paragraph.text)
+        mark('glyph scene skipped for reference visual experiment', paragraph.text)
         return
       }
 
@@ -978,6 +978,55 @@ function App() {
         setActiveSceneConfig(sceneConfig)
         mark('glyph scene ready', sceneConfig.sourcePhrase)
       })
+    },
+    [mark],
+  )
+
+  const requestVisualReferences = useCallback(
+    async (paragraph: GeneratedParagraph) => {
+      if (!experimentalAsciiVisuals) return
+
+      const visualQuery = normalizeSpaces(paragraph.visualQuery || paragraph.text)
+
+      setVisualReferences([
+        {
+          provider: 'asciiart.eu',
+          status: 'missing',
+          query: visualQuery,
+          message: 'Loading ASCII Art Archive...',
+        },
+      ])
+
+      try {
+        const response = await fetch('/api/visual-references', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            visualQuery,
+            paragraph: paragraph.text,
+          }),
+        })
+        const payload = (await response.json()) as {
+          references?: VisualReference[]
+        }
+
+        setVisualReferences(payload.references || [])
+        mark('visual references ready', visualQuery)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Visual reference lookup failed'
+
+        setVisualReferences([
+          {
+            provider: 'asciiart.eu',
+            status: 'failed',
+            query: visualQuery,
+            message,
+          },
+        ])
+        mark('visual references failed', message)
+      }
     },
     [mark],
   )
@@ -1057,7 +1106,7 @@ function App() {
       const split = splitPlanningResponse(raw)
       const paragraph = split.paragraph
       const visualCues = parseVisualCues(split.visualCueText)
-      const asciiArt = normalizeAsciiArt(split.asciiArt)
+      const visualQuery = normalizeSpaces(split.visualQuery)
 
       if (!paragraph || !isProbablyEnglish(paragraph)) {
         cleanupPlanningResponse(responseId)
@@ -1073,7 +1122,7 @@ function App() {
         text: paragraph,
         createdAt: new Date().toISOString(),
         visualCues,
-        asciiArt,
+        visualQuery,
       }
 
       hasGeneratedRef.current = true
@@ -1083,6 +1132,7 @@ function App() {
       setPlanningState('ready')
       planningStateRef.current = 'ready'
       applyGeneratedScene(generated)
+      void requestVisualReferences(generated)
       mark(
         'usable paragraph received',
         planningStartedAtRef.current == null
@@ -1097,14 +1147,14 @@ function App() {
       planningRetryCountRef.current = 0
       cleanupPlanningResponse(responseId)
     },
-    [applyGeneratedScene, cleanupPlanningResponse, failOrRetryPlanning, mark],
+    [applyGeneratedScene, cleanupPlanningResponse, failOrRetryPlanning, mark, requestVisualReferences],
   )
 
   const clearVisibleScript = useCallback(() => {
     generatedParagraphRef.current = null
     setGeneratedParagraph(null)
     setPlanningDraft('')
-    setAsciiArt('')
+    setVisualReferences([])
   }, [])
 
   const completeCurrentScript = useCallback(
@@ -1465,7 +1515,7 @@ function App() {
     setActiveSceneConfig(initialScene)
     setSpeechSignals(defaultSpeechSignals)
     clearVisibleScript()
-    setAsciiArt('')
+    setVisualReferences([])
     setPlanningState('idle')
     setScriptFeedback('idle')
     setTimings([])
@@ -1496,15 +1546,32 @@ function App() {
   const emphasisSet = new Set(audienceDisplay.emphasis.map(normalizeDisplayWord))
 
   return (
-    <main className={`app-shell ${overlayVisible && !isEvalMode ? '' : 'overlay-hidden'} ${isEvalMode ? 'eval-mode' : ''} ${experimentalAsciiVisuals ? 'ascii-mode' : ''} ${asciiArt ? 'ascii-art-visible' : ''}`}>
+    <main className={`app-shell ${overlayVisible && !isEvalMode ? '' : 'overlay-hidden'} ${isEvalMode ? 'eval-mode' : ''} ${experimentalAsciiVisuals ? 'ascii-mode' : ''} ${visualReferences.some((reference) => reference.status === 'ready' && reference.art) ? 'reference-art-visible' : ''}`}>
       <section className="stage" aria-label="Audience teleprompter">
         {experimentalAsciiVisuals ? null : (
           <GlyphStage sceneConfig={activeSceneConfig} speechSignals={speechSignals} />
         )}
-        {experimentalAsciiVisuals && asciiArt ? (
-          <pre className="ascii-visual" aria-label="Generated ASCII visual">
-            {asciiArt}
-          </pre>
+        {experimentalAsciiVisuals && visualReferences.some((reference) => reference.status === 'ready' && reference.art) ? (
+          <div className="reference-visuals" aria-label="Reference visuals">
+            {visualReferences
+              .filter((reference) => reference.status === 'ready' && reference.art)
+              .map((reference) => (
+              <article
+                className="reference-card asciiart-card"
+                key={reference.provider}
+              >
+                <pre>{reference.art}</pre>
+              </article>
+            ))}
+          </div>
+        ) : null}
+        {experimentalAsciiVisuals ? (
+          <div className="reference-credit" aria-live="polite">
+            {visualReferences
+              .filter((reference) => reference.status === 'ready' && reference.art && reference.credit)
+              .map((reference) => reference.credit)
+              .join('')}
+          </div>
         ) : null}
         <p className={`stage-phrase tone-${audienceDisplay.tone}`}>
           {audienceDisplay.text.split(' ').map((word, index) => {

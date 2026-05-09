@@ -573,6 +573,10 @@ Harden the real provider path without changing the presenter experience from Pha
 
 Productionize the Realtime speech path proven in Phase 0.5 and combine text streaming, display extraction, generated script queueing, script completion, and topic-change handling into one live presentation loop.
 
+### Status
+
+Deprioritized until after Phase 5. The MVP already has the core voice loop, so the remaining Phase 4 work is production hardening for the voice runtime rather than a blocker for glyph scenes.
+
 ### 1. Speech Capture
 
 - [ ] Harden the microphone permission flow from the feasibility spike.
@@ -651,46 +655,50 @@ Create the local glyph scene runtime that accepts structured visual cues or scen
 
 ### 1. Scene Config Interface
 
-- [ ] Define a `VisualCue` input contract based on `PRD.md`.
-- [ ] Define a `GlyphSceneConfig` contract with scene ID, cue ID, status, source phrase, target timing, palette, mood, creatures, force fields, speech mappings, reduced-motion behavior, error message, and timestamps.
-- [ ] Define supported scene/action types:
-  - [ ] `glyph-scene`
-  - [ ] `force-field`
-  - [ ] `canvas-effect`
-  - [ ] `pretext-effect`
-  - [ ] optional delayed `image`
-- [ ] Store generated scene metadata in a predictable format such as JSON.
+- [x] Define a `VisualCue` input contract based on `PRD.md`.
+- [x] Define a `GlyphSceneConfig` contract with scene ID, cue ID, status, source phrase, target timing, palette, mood, creatures, force fields, speech mappings, reduced-motion behavior, error message, and timestamps.
+- [x] Define supported scene/action types:
+  - [x] `glyph-scene`
+  - [x] `force-field`
+  - [x] `canvas-effect`
+  - [x] `pretext-effect`
+  - [x] optional delayed `image`
+- [x] Store generated scene metadata in a predictable structured object that can be serialized to JSON.
 
 ### 2. Canvas Glyph Engine
 
-- [ ] Build a framework-agnostic engine that owns `requestAnimationFrame`, canvas drawing, particles, velocities, glyph homes, force fields, resize handling, and reduced-motion behavior.
-- [ ] Use React only to mount the canvas and pass stable `sceneConfig` and `speechSignals` through refs/effects.
-- [ ] Do not keep per-frame particle state in React.
-- [ ] Preserve particle identity across scene changes; retarget existing particles instead of clearing the scene.
-- [ ] Add deterministic local scenes for development: forest, storm, dragon, product reveal, swarm, rain, fireflies, and abstract motion.
+- [x] Build a framework-agnostic engine that owns `requestAnimationFrame`, canvas drawing, particles, velocities, glyph homes, force fields, resize handling, and reduced-motion behavior.
+- [x] Use React only to mount the canvas and pass stable `sceneConfig` and `speechSignals` through refs/effects.
+- [x] Do not keep per-frame particle state in React.
+- [x] Preserve particle identity across scene changes; retarget existing particles instead of clearing the scene.
+- [x] Add a generic local fallback scene compiler for development without topic-specific routing.
+- [x] Add an optional backend dynamic scene generator hook that can call `codex exec` or `claude -p`.
+- [x] Keep paid dynamic scene generation opt-in only. Default `GLYPH_SCENE_GENERATOR=off` so the live MVP does not spend outside OpenAI Realtime unless explicitly enabled.
 
 ### 3. Local Scene Generator Prototype
 
-- [ ] Create a local generator that accepts a cue or scene intent and returns a compact `GlyphSceneConfig`.
-- [ ] Generate scene rules, palettes, force fields, and timing metadata without requiring external image services.
-- [ ] Return scene metadata that the frontend can consume.
-- [ ] Add deterministic sample cues and scene configs for development.
+- [x] Create a local generator that accepts a cue or scene intent and returns a compact `GlyphSceneConfig`.
+- [x] Generate scene rules, palettes, force fields, and timing metadata without requiring external image services.
+- [x] Return scene metadata that the frontend can consume.
+- [x] Add deterministic sample cues and scene configs for development.
 
 ### 4. Frontend Scene Loading
 
-- [ ] Add a scene registry or scene status store.
-- [ ] Apply ready scene configs to the canvas glyph engine.
-- [ ] Render at least one generated/local glyph scene in a visual layer.
+- [x] Add active scene config state as the first scene status store.
+- [x] Apply ready scene configs to the canvas glyph engine.
+- [x] Render at least one generated/local glyph scene in a visual layer.
 - [ ] Add fallback display when a scene config fails or is unavailable.
 - [ ] Keep optional image/SVG assets behind the same status store as delayed enhancement only.
 
 ### 5. Scene Timing Handoff
 
-- [ ] Accept `create_visual_cues`, `set_glyph_scene_config`, `trigger_force_field`, and `trigger_visual_at_phrase`-style tool/function calls or equivalent structured outputs.
+- [x] Accept visual cue structured outputs from the generated paragraph response.
 - [ ] Match spoken or queued generated phrases against visual cue `targetTiming`.
 - [ ] Trigger ready scene actions when the target phrase or word index is reached.
-- [ ] If a generated scene config is not ready in time, use a local fallback scene or skip the effect.
-- [ ] Start scene config generation or local scene retargeting early when paragraph text or cue data becomes usable.
+- [x] If a generated scene config is not ready in time, use a local fallback scene or skip the effect.
+- [x] Start scene config generation or local scene retargeting early when paragraph text or cue data becomes usable.
+- [x] Retarget the canvas immediately from off-script spoken topics instead of waiting for the next generated paragraph.
+- [x] Remove hardcoded topic-to-scene routing from the frontend scene generator.
 - [ ] Use paragraph pacing or light pauses in generated text to create lead time for richer optional visuals.
 
 ### 6. PretextJS Preparation

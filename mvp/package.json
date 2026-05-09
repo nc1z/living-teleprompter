@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "eval:glyph-screenshots": "node scripts/capture-glyph-eval.mjs",
+    "eval:glyph-scenes": "node scripts/eval-glyph-scenes.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "server": "node server.mjs"

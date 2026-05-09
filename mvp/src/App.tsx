@@ -11,9 +11,21 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
+import { GlyphStage } from './glyph/GlyphStage'
+import {
+  generateGlyphSceneConfig,
+  requestGlyphSceneConfig,
+} from './glyph/localSceneGenerator'
 import { clientConfig } from './teleprompter/config'
 import { phaseZeroFixture } from './teleprompter/fixtures'
-import type { GeneratedParagraph, StreamChunk, StreamSource, VisualCue } from './teleprompter/types'
+import type {
+  GeneratedParagraph,
+  GlyphSceneConfig,
+  SpeechSignals,
+  StreamChunk,
+  StreamSource,
+  VisualCue,
+} from './teleprompter/types'
 
 type PlanningState = 'idle' | 'generating' | 'ready' | 'reading' | 'consumed' | 'failed'
 type ConnectionState = 'idle' | 'connecting' | 'listening' | 'error'
@@ -66,6 +78,9 @@ type RealtimeHandles = {
 }
 
 const visualCueMarker = '---VISUAL_CUES_JSON---'
+const asciiArtMarker = '---ASCII_ART_TEXT---'
+const experimentalAsciiVisuals =
+  import.meta.env.VITE_EXPERIMENTAL_ASCII_VISUALS !== 'false'
 const maxPlanningRetries = 1
 const storyBeatIdeas = [
   'set up the promise in one clear line',
@@ -77,6 +92,17 @@ const storyBeatIdeas = [
   'handle a surprise topic change and make it feel intentional',
   'wrap the demo with a simple audience takeaway',
 ]
+const defaultSpeechSignals: SpeechSignals = {
+  volume: 0,
+  pace: 0,
+  pitch: 0.5,
+  pauseDurationMs: 0,
+  emphasis: 0,
+  confidence: 0.7,
+  topicShift: 0,
+  sentiment: 'neutral',
+  currentWordIndex: 0,
+}
 const fillerWords = new Set([
   'actually',
   'basically',
@@ -144,23 +170,58 @@ function textFromResponseDone(event: ServerEvent) {
 }
 
 function splitPlanningResponse(text: string) {
-  const markerIndex = text.indexOf(visualCueMarker)
+  const visualMarkerIndex = text.indexOf(visualCueMarker)
+  const asciiMarkerIndex = text.indexOf(asciiArtMarker)
+  const markerIndexes = [visualMarkerIndex, asciiMarkerIndex].filter((index) => index !== -1)
+  const firstMarkerIndex = markerIndexes.length ? Math.min(...markerIndexes) : -1
 
-  if (markerIndex === -1) {
+  if (firstMarkerIndex === -1) {
     return {
       paragraph: text.trim(),
       visualCueText: '',
+      asciiArt: '',
     }
   }
 
+  const visualCueText =
+    visualMarkerIndex === -1
+      ? ''
+      : text
+          .slice(
+            visualMarkerIndex + visualCueMarker.length,
+            asciiMarkerIndex > visualMarkerIndex ? asciiMarkerIndex : undefined,
+          )
+          .trim()
+  const asciiArt =
+    asciiMarkerIndex === -1
+      ? ''
+      : text
+          .slice(
+            asciiMarkerIndex + asciiArtMarker.length,
+            visualMarkerIndex > asciiMarkerIndex ? visualMarkerIndex : undefined,
+          )
+          .trim()
+
   return {
-    paragraph: text.slice(0, markerIndex).trim(),
-    visualCueText: text.slice(markerIndex + visualCueMarker.length).trim(),
+    paragraph: text.slice(0, firstMarkerIndex).trim(),
+    visualCueText,
+    asciiArt,
   }
 }
 
 function stripJsonFence(raw: string) {
   return raw.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()
+}
+
+function normalizeAsciiArt(raw: string) {
+  return raw
+    .replace(/^```(?:ascii|text)?/i, '')
+    .replace(/```$/i, '')
+    .split(/\r?\n/)
+    .map((line) => line.replace(/[^\x20-\x7e]/g, '').slice(0, 74).replace(/\s+$/g, ''))
+    .filter((line) => line.trim())
+    .slice(0, 18)
+    .join('\n')
 }
 
 function normalizeDisplayWord(value: string) {
@@ -178,8 +239,52 @@ function normalizeSpaces(value: string) {
   return value.replace(/\s+/g, ' ').trim()
 }
 
+function clampNumber(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value))
+}
+
 function nextStoryBeat(deliveredCount: number) {
   return storyBeatIdeas[Math.min(deliveredCount, storyBeatIdeas.length - 1)]
+}
+
+function speechSignalsFromText(text: string, topicShift = 0): SpeechSignals {
+  const words = normalizeSpaces(text).split(' ').filter(Boolean)
+  const wordCount = words.length
+  const longWords = words.filter((word) => normalizeDisplayWord(word).length > 7).length
+
+  return {
+    volume: clampNumber(wordCount / 14, 0.12, 1),
+    pace: clampNumber(wordCount / 18, 0, 1),
+    pitch: clampNumber(0.45 + longWords / Math.max(8, wordCount + 1), 0.35, 0.8),
+    pauseDurationMs: 0,
+    emphasis: clampNumber(longWords / Math.max(1, wordCount), 0.05, 0.8),
+    confidence: 0.76,
+    topicShift,
+    sentiment: topicShift > 0 ? 'playful' : 'positive',
+    currentWordIndex: Math.max(0, wordCount - 1),
+  }
+}
+
+function sceneFromQuery() {
+  try {
+    const encodedScene = new URLSearchParams(window.location.search).get('evalScene')
+
+    if (!encodedScene) return null
+
+    const normalizedScene = encodedScene
+      .replace(/-/g, '+')
+      .replace(/_/g, '/')
+      .padEnd(Math.ceil(encodedScene.length / 4) * 4, '=')
+    const bytes = Uint8Array.from(window.atob(normalizedScene), (char) => char.charCodeAt(0))
+    const json = new TextDecoder().decode(bytes)
+    const parsed = JSON.parse(json) as GlyphSceneConfig
+
+    if (!parsed.id || !parsed.palette) return null
+
+    return parsed
+  } catch {
+    return null
+  }
 }
 
 function shouldPromoteToDisplay(value: string) {
@@ -226,9 +331,13 @@ function spokenScriptOverlap(spoken: string, script: string) {
 function isLikelyTopicChange(spoken: string, script: string) {
   const spokenWords = meaningfulWords(spoken)
 
-  if (spokenWords.length < 4) return false
+  if (spokenWords.length < 2) return false
 
-  return spokenScriptOverlap(spoken, script) < 0.18
+  const overlap = spokenScriptOverlap(spoken, script)
+
+  if (spokenWords.length >= 4) return overlap < 0.42
+
+  return overlap === 0 && normalizeSpaces(spoken).length >= 10
 }
 
 function isProbablyEnglish(value: string) {
@@ -336,7 +445,7 @@ function parseVisualCues(raw: string): VisualCue[] {
             ? undefined
             : Number(cue.targetTiming.wordIndex),
       },
-      sceneType: ['glyph-scene', 'force-field', 'canvas-effect', 'pretext-effect'].includes(
+      sceneType: ['glyph-scene', 'force-field', 'canvas-effect', 'pretext-effect', 'image'].includes(
         cue.sceneType,
       )
         ? cue.sceneType
@@ -348,10 +457,62 @@ function parseVisualCues(raw: string): VisualCue[] {
   }
 }
 
+function createBlankSceneConfig(): GlyphSceneConfig {
+  const now = new Date().toISOString()
+
+  return {
+    id: 'ascii-experiment-blank-scene',
+    cueId: 'ascii-experiment',
+    status: 'ready',
+    sourcePhrase: '',
+    targetTiming: {
+      paragraphIndex: 0,
+      phraseMatch: '',
+    },
+    sceneType: 'glyph-scene',
+    palette: {
+      background: 'transparent',
+      primary: '#111827',
+      accent: '#078a55',
+      muted: '#e5e7eb',
+      glyphs: [],
+    },
+    clusters: [],
+    mood: 'abstract',
+    creatures: [],
+    forceFields: [],
+    speechMappings: {
+      volume: 'none',
+      pace: 'none',
+      emphasis: 'none',
+      topicShift: 'none',
+    },
+    reducedMotion: true,
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
 function App() {
+  const evalScene = useMemo(() => sceneFromQuery(), [])
+  const isEvalMode = Boolean(evalScene)
   const initialDisplay = useMemo(
-    () => createLocalDisplay(phaseZeroFixture.typedInput.at(-1)?.text || ''),
-    [],
+    () =>
+      createLocalDisplay(
+        evalScene?.sourcePhrase || phaseZeroFixture.typedInput.at(-1)?.text || '',
+      ),
+    [evalScene],
+  )
+  const initialScene = useMemo(
+    () =>
+      evalScene ||
+      (experimentalAsciiVisuals
+        ? createBlankSceneConfig()
+        : generateGlyphSceneConfig(
+            phaseZeroFixture.generatedParagraphs[0]?.visualCues[0],
+            phaseZeroFixture.generatedParagraphs[0],
+          )),
+    [evalScene],
   )
   const [connectionState, setConnectionState] = useState<ConnectionState>('idle')
   const [status, setStatus] = useState('Ready.')
@@ -373,6 +534,11 @@ function App() {
   const [overlayVisible, setOverlayVisible] = useState(true)
   const [debugVisible, setDebugVisible] = useState(false)
   const [streamPaused, setStreamPaused] = useState(false)
+  const [activeSceneConfig, setActiveSceneConfig] =
+    useState<GlyphSceneConfig>(initialScene)
+  const [speechSignals, setSpeechSignals] =
+    useState<SpeechSignals>(defaultSpeechSignals)
+  const [asciiArt, setAsciiArt] = useState('')
 
   const handlesRef = useRef<RealtimeHandles | null>(null)
   const partialByItemRef = useRef(new Map<string, string>())
@@ -620,6 +786,20 @@ function App() {
     const suggestedBeat = topicDrift.length
       ? 'bridge the latest user topic back to the main presentation'
       : nextStoryBeat(deliveredCount)
+    const visualInstructions = experimentalAsciiVisuals
+      ? [
+          'After the paragraph, include a newline, the exact marker ---ASCII_ART_TEXT---, then ASCII art only.',
+          'The ASCII art should be a single clear creature, object, product, plant, place, or visual prop from the next paragraph or latest speaker topic.',
+          'Use only plain ASCII characters, spaces, and newlines. No Unicode blocks, emojis, captions, labels, markdown fences, or words inside the art.',
+          'Keep it 8-16 lines tall and 24-64 columns wide. Make the silhouette readable at a glance.',
+          'If the topic is a product like a drink, draw the product. If it is nature, draw the tree, plant, mountain, or scene object. If it is a creature, draw the creature.',
+        ]
+      : [
+          'After the paragraph, include a newline, the exact marker ---VISUAL_CUES_JSON---, then strict JSON for 1-2 lightweight visual cues.',
+          'The visual cues should target a glyph-particle scene, not an image. Keep cue words simple too.',
+          'If the presenter pivots to a concrete object, place, creature, product, or scene, the visual cue must name that subject directly.',
+          'JSON shape: [{"phrase":"living demo","prompt":"bright glyphs form a live stage","sceneType":"glyph-scene","targetTiming":{"paragraphIndex":0,"phraseMatch":"living demo","wordIndex":2}}]',
+        ]
 
     return [
       'You are writing the next thing I should say in an improvised live demo.',
@@ -639,9 +819,7 @@ function App() {
       'Use the presentation goal and recent transcript. Stay specific to the speaker topic.',
       'If the presenter went off script, follow the latest spoken topic instead of forcing the old script.',
       'Write in English only. Return one short spoken paragraph first, about 2-4 short sentences. No bullets and no label before the paragraph.',
-      'After the paragraph, include a newline, the exact marker ---VISUAL_CUES_JSON---, then strict JSON for 1-2 lightweight visual cues.',
-      'The visual cues should target a glyph-particle scene, not an image. Keep cue words simple too.',
-      'JSON shape: [{"phrase":"living demo","prompt":"bright glyphs form a live stage","sceneType":"glyph-scene","targetTiming":{"paragraphIndex":0,"phraseMatch":"living demo","wordIndex":2}}]',
+      ...visualInstructions,
       '',
       `Presentation goal:\n${presentationBriefRef.current || '(no explicit brief)'}`,
       '',
@@ -781,6 +959,54 @@ function App() {
     [mark, requestPlanning],
   )
 
+  const applyGeneratedScene = useCallback(
+    (paragraph: GeneratedParagraph) => {
+      if (experimentalAsciiVisuals) {
+        const art = normalizeAsciiArt(paragraph.asciiArt || '')
+
+        setAsciiArt(art)
+        mark(art ? 'ascii visual ready' : 'ascii visual missing', paragraph.text)
+        return
+      }
+
+      const cue = paragraph.visualCues[0]
+      const fallbackScene = generateGlyphSceneConfig(cue, paragraph)
+
+      setActiveSceneConfig(fallbackScene)
+      mark('glyph scene fallback ready', fallbackScene.sourcePhrase)
+      void requestGlyphSceneConfig(cue, paragraph).then((sceneConfig) => {
+        setActiveSceneConfig(sceneConfig)
+        mark('glyph scene ready', sceneConfig.sourcePhrase)
+      })
+    },
+    [mark],
+  )
+
+  const applySpokenScene = useCallback(
+    (spokenTranscript: string, topicShift = 0) => {
+      if (experimentalAsciiVisuals) {
+        setSpeechSignals(speechSignalsFromText(spokenTranscript, topicShift))
+        mark('glyph scene skipped for ascii experiment', spokenTranscript)
+        return
+      }
+
+      const paragraph = {
+        id: `spoken-${Date.now()}`,
+        text: spokenTranscript,
+      }
+      const fallbackScene = generateGlyphSceneConfig(undefined, paragraph)
+
+      setActiveSceneConfig(fallbackScene)
+      setSpeechSignals(speechSignalsFromText(spokenTranscript, topicShift))
+      mark('glyph scene retargeted from speech', fallbackScene.sourcePhrase)
+      void requestGlyphSceneConfig(undefined, paragraph).then((sceneConfig) => {
+        setActiveSceneConfig(sceneConfig)
+        mark('dynamic glyph scene ready', sceneConfig.sourcePhrase)
+      })
+    },
+    [mark],
+  )
+
   const handlePlanningDelta = useCallback(
     (event: ServerEvent) => {
       const responseId = eventResponseId(event)
@@ -831,6 +1057,7 @@ function App() {
       const split = splitPlanningResponse(raw)
       const paragraph = split.paragraph
       const visualCues = parseVisualCues(split.visualCueText)
+      const asciiArt = normalizeAsciiArt(split.asciiArt)
 
       if (!paragraph || !isProbablyEnglish(paragraph)) {
         cleanupPlanningResponse(responseId)
@@ -846,6 +1073,7 @@ function App() {
         text: paragraph,
         createdAt: new Date().toISOString(),
         visualCues,
+        asciiArt,
       }
 
       hasGeneratedRef.current = true
@@ -854,6 +1082,7 @@ function App() {
       setPlanningDraft(paragraph)
       setPlanningState('ready')
       planningStateRef.current = 'ready'
+      applyGeneratedScene(generated)
       mark(
         'usable paragraph received',
         planningStartedAtRef.current == null
@@ -868,13 +1097,14 @@ function App() {
       planningRetryCountRef.current = 0
       cleanupPlanningResponse(responseId)
     },
-    [cleanupPlanningResponse, failOrRetryPlanning, mark],
+    [applyGeneratedScene, cleanupPlanningResponse, failOrRetryPlanning, mark],
   )
 
   const clearVisibleScript = useCallback(() => {
     generatedParagraphRef.current = null
     setGeneratedParagraph(null)
     setPlanningDraft('')
+    setAsciiArt('')
   }, [])
 
   const completeCurrentScript = useCallback(
@@ -918,20 +1148,24 @@ function App() {
 
       skippedScriptsRef.current = [...skippedScriptsRef.current, currentScript].slice(-5)
       topicDriftRef.current = [...topicDriftRef.current, spokenTranscript].slice(-5)
+      applySpokenScene(spokenTranscript, 1)
       hasGeneratedRef.current = false
       planningStateRef.current = 'idle'
       setPlanningState('idle')
       showTemporaryScriptFeedback('diverged')
       mark('script diverged', spokenTranscript)
       clearAutoGenerationTimer()
-
-      autoGenerationTimerRef.current = window.setTimeout(() => {
-        clearVisibleScript()
-        requestPlanning('topic changed')
-        autoGenerationTimerRef.current = null
-      }, 300)
+      clearVisibleScript()
+      requestPlanning('topic changed')
     },
-    [clearAutoGenerationTimer, clearVisibleScript, mark, requestPlanning, showTemporaryScriptFeedback],
+    [
+      applySpokenScene,
+      clearAutoGenerationTimer,
+      clearVisibleScript,
+      mark,
+      requestPlanning,
+      showTemporaryScriptFeedback,
+    ],
   )
 
   const finishDisplayExtraction = useCallback(
@@ -994,14 +1228,13 @@ function App() {
         }
 
         partialByItemRef.current.set(itemId, `${previous}${event.delta || ''}`)
-        setPartialTranscript(
-          Array.from(partialByItemRef.current.values())
+        const liveText = Array.from(partialByItemRef.current.values())
             .join(' ')
             .trim()
-            .split(/\s+/)
-            .slice(-18)
-            .join(' '),
-        )
+        const visibleLiveText = liveText.split(/\s+/).slice(-18).join(' ')
+
+        setPartialTranscript(visibleLiveText)
+        setSpeechSignals(speechSignalsFromText(visibleLiveText))
         return
       }
 
@@ -1017,6 +1250,7 @@ function App() {
         if (!transcript || streamPausedRef.current) return
 
         appendFinalizedChunk(transcript, 'speech')
+        setSpeechSignals(speechSignalsFromText(transcript))
 
         const currentScript = generatedParagraphRef.current?.text
         const canEvaluateScript =
@@ -1228,13 +1462,16 @@ function App() {
     planningRawRef.current = ''
     setFinalizedChunks([])
     setAudienceDisplay(createLocalDisplay(''))
+    setActiveSceneConfig(initialScene)
+    setSpeechSignals(defaultSpeechSignals)
     clearVisibleScript()
+    setAsciiArt('')
     setPlanningState('idle')
     setScriptFeedback('idle')
     setTimings([])
     setLastError('')
     mark('session cleared')
-  }, [clearDisplayBufferTimer, clearVisibleScript, mark])
+  }, [clearDisplayBufferTimer, clearVisibleScript, initialScene, mark])
 
   useEffect(() => {
     return () => {
@@ -1259,8 +1496,16 @@ function App() {
   const emphasisSet = new Set(audienceDisplay.emphasis.map(normalizeDisplayWord))
 
   return (
-    <main className={`app-shell ${overlayVisible ? '' : 'overlay-hidden'}`}>
+    <main className={`app-shell ${overlayVisible && !isEvalMode ? '' : 'overlay-hidden'} ${isEvalMode ? 'eval-mode' : ''} ${experimentalAsciiVisuals ? 'ascii-mode' : ''} ${asciiArt ? 'ascii-art-visible' : ''}`}>
       <section className="stage" aria-label="Audience teleprompter">
+        {experimentalAsciiVisuals ? null : (
+          <GlyphStage sceneConfig={activeSceneConfig} speechSignals={speechSignals} />
+        )}
+        {experimentalAsciiVisuals && asciiArt ? (
+          <pre className="ascii-visual" aria-label="Generated ASCII visual">
+            {asciiArt}
+          </pre>
+        ) : null}
         <p className={`stage-phrase tone-${audienceDisplay.tone}`}>
           {audienceDisplay.text.split(' ').map((word, index) => {
             const emphasized = emphasisSet.has(normalizeDisplayWord(word))
@@ -1278,7 +1523,7 @@ function App() {
         </p>
       </section>
 
-      {!overlayVisible ? (
+      {!overlayVisible && !isEvalMode ? (
         <button
           type="button"
           className="overlay-toggle floating"
@@ -1288,7 +1533,7 @@ function App() {
         </button>
       ) : null}
 
-      {overlayVisible ? (
+      {overlayVisible && !isEvalMode ? (
         <aside className="presenter-panel" aria-label="Presenter controls">
           <section className="control-section">
             <div className="section-heading-row">

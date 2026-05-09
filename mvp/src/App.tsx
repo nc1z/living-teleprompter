@@ -19,6 +19,9 @@ type PlanningState = 'idle' | 'generating' | 'ready' | 'reading' | 'consumed' | 
 type ConnectionState = 'idle' | 'connecting' | 'listening' | 'error'
 type DisplayTone = 'green' | 'blue' | 'red' | 'gold'
 type ScriptFeedback = 'idle' | 'matched' | 'diverged'
+type PlanningOptions = {
+  retry?: boolean
+}
 
 type TimingEntry = {
   id: number
@@ -63,6 +66,35 @@ type RealtimeHandles = {
 }
 
 const visualCueMarker = '---VISUAL_CUES_JSON---'
+const maxPlanningRetries = 1
+const storyBeatIdeas = [
+  'set up the promise in one clear line',
+  'show what the audience sees on screen',
+  'explain how speech becomes a clean headline',
+  'show how the next line helps the presenter keep moving',
+  'bring in a fun visual moment, prop, or scene',
+  'show a product example or live demo example',
+  'handle a surprise topic change and make it feel intentional',
+  'wrap the demo with a simple audience takeaway',
+]
+const fillerWords = new Set([
+  'actually',
+  'basically',
+  'cool',
+  'great',
+  'hmm',
+  'just',
+  'like',
+  'okay',
+  'ok',
+  'right',
+  'so',
+  'uh',
+  'um',
+  'well',
+  'yeah',
+  'yes',
+])
 const stopWords = new Set([
   'a',
   'an',
@@ -144,6 +176,25 @@ function meaningfulWords(value: string) {
 
 function normalizeSpaces(value: string) {
   return value.replace(/\s+/g, ' ').trim()
+}
+
+function nextStoryBeat(deliveredCount: number) {
+  return storyBeatIdeas[Math.min(deliveredCount, storyBeatIdeas.length - 1)]
+}
+
+function shouldPromoteToDisplay(value: string) {
+  const text = normalizeSpaces(value)
+  const normalizedWords = text.split(' ').map(normalizeDisplayWord).filter(Boolean)
+  const meaningful = normalizedWords.filter(
+    (word) => word.length > 2 && !stopWords.has(word) && !fillerWords.has(word),
+  )
+
+  if (!text) return false
+  if (normalizedWords.length <= 2 && meaningful.length < 2) return false
+  if (text.length < 14 && meaningful.length < 2) return false
+  if (meaningful.length === 0) return false
+
+  return true
 }
 
 function lastMeaningfulWords(value: string, count: number) {
@@ -338,15 +389,21 @@ function App() {
   const lastFinalizedAtRef = useRef<number | null>(null)
   const timingIdRef = useRef(0)
   const planningRequestIdRef = useRef(0)
+  const planningRetryCountRef = useRef(0)
+  const lastPlanningReasonRef = useRef('')
   const hasGeneratedRef = useRef(false)
   const generatedParagraphRef = useRef<GeneratedParagraph | null>(null)
   const acceptedScriptsRef = useRef<string[]>([])
   const skippedScriptsRef = useRef<string[]>([])
+  const topicDriftRef = useRef<string[]>([])
   const planningStateRef = useRef<PlanningState>('idle')
   const presentationBriefRef = useRef(presentationBrief)
   const streamPausedRef = useRef(false)
   const feedbackTimerRef = useRef<number | null>(null)
   const autoGenerationTimerRef = useRef<number | null>(null)
+  const displayBufferTimerRef = useRef<number | null>(null)
+  const pendingDisplayTextRef = useRef('')
+  const pendingDisplayChunkIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     planningStateRef.current = planningState
@@ -468,6 +525,58 @@ function App() {
     [mark, sendEvent],
   )
 
+  const clearDisplayBufferTimer = useCallback(() => {
+    if (displayBufferTimerRef.current) {
+      window.clearTimeout(displayBufferTimerRef.current)
+      displayBufferTimerRef.current = null
+    }
+  }, [])
+
+  const promoteDisplayCandidate = useCallback(
+    (candidate: string, chunkId: string) => {
+      const normalized = normalizeSpaces(candidate)
+
+      if (!normalized) return
+
+      setAudienceDisplay(createLocalDisplay(normalized, chunkId))
+      requestDisplayExtraction(normalized, chunkId)
+      mark('display promoted', normalized)
+    },
+    [mark, requestDisplayExtraction],
+  )
+
+  const queueDisplayCandidate = useCallback(
+    (text: string, chunkId: string, source: StreamSource) => {
+      if (source === 'generated') return
+
+      const candidate = normalizeSpaces(
+        [pendingDisplayTextRef.current, text].filter(Boolean).join(' '),
+      )
+
+      clearDisplayBufferTimer()
+
+      if (shouldPromoteToDisplay(candidate)) {
+        pendingDisplayTextRef.current = ''
+        pendingDisplayChunkIdRef.current = null
+        promoteDisplayCandidate(candidate, chunkId)
+        return
+      }
+
+      pendingDisplayTextRef.current = candidate
+      pendingDisplayChunkIdRef.current = chunkId
+      mark('display buffered', candidate)
+
+      displayBufferTimerRef.current = window.setTimeout(() => {
+        const dropped = pendingDisplayTextRef.current
+        pendingDisplayTextRef.current = ''
+        pendingDisplayChunkIdRef.current = null
+        displayBufferTimerRef.current = null
+        mark('display buffer dropped', dropped)
+      }, 2800)
+    },
+    [clearDisplayBufferTimer, mark, promoteDisplayCandidate],
+  )
+
   const appendFinalizedChunk = useCallback(
     (text: string, source: StreamSource) => {
       const trimmed = normalizeSpaces(text)
@@ -486,44 +595,70 @@ function App() {
       finalizedTextRef.current = `${finalizedTextRef.current} ${trimmed}`.trim()
       lastFinalizedAtRef.current = performance.now()
       setFinalizedChunks(finalizedChunksRef.current)
-      setAudienceDisplay(createLocalDisplay(trimmed, chunk.id))
       mark('sentence or phrase finalized', trimmed)
-
-      if (source !== 'generated') {
-        requestDisplayExtraction(trimmed, chunk.id)
-      }
+      queueDisplayCandidate(trimmed, chunk.id, source)
 
       return chunk
     },
-    [mark, requestDisplayExtraction],
+    [mark, queueDisplayCandidate],
   )
 
   const buildPlannerPrompt = useCallback(() => {
-    const recentContext = finalizedTextRef.current.trim() || '(none yet)'
-    const acceptedScripts = acceptedScriptsRef.current.slice(-3)
-    const skippedScripts = skippedScriptsRef.current.slice(-2)
+    const recentChunks = finalizedChunksRef.current.slice(-5)
+    const currentFinalizedSpeech =
+      [...finalizedChunksRef.current]
+        .reverse()
+        .find((chunk) => chunk.source === 'speech' || chunk.source === 'typed')?.text ||
+      '(none yet)'
+    const recentContext = recentChunks.length
+      ? recentChunks.map((chunk) => `${chunk.source}: ${chunk.text}`).join('\n')
+      : finalizedTextRef.current.trim() || '(none yet)'
+    const acceptedScripts = acceptedScriptsRef.current.slice(-5)
+    const skippedScripts = skippedScriptsRef.current.slice(-3)
+    const topicDrift = topicDriftRef.current.slice(-3)
+    const deliveredCount = acceptedScripts.length
+    const suggestedBeat = topicDrift.length
+      ? 'bridge the latest user topic back to the main presentation'
+      : nextStoryBeat(deliveredCount)
 
     return [
       'You are writing the next thing I should say in an improvised live demo.',
+      `This is beat ${deliveredCount + 1} of the talk. Continue the presentation from what was already said.`,
+      `The next story job is: ${suggestedBeat}.`,
+      'Do not restart the demo. Do not recap the same idea in new words.',
+      'Do not repeat accepted/read generated scripts, skipped scripts, or the latest speaker transcript.',
+      'Move the story forward by adding one new concrete beat: a quick example, a product moment, a playful surprise, a live audience payoff, or a simple closing step.',
+      'Think of the flow as A then B then C then D. If B was just delivered, C must be a new next topic, not another version of B.',
+      'If the last script mentioned text, voice, glyphs, or the living demo, the next script should add a new angle instead of saying those same benefits again.',
+      'Write like a friendly person talking on stage, not like a product document.',
+      'Use very simple English words that are easy to hear, catch, and pronounce out loud.',
+      'Keep it casual, fun, and demo-like. It should sound natural when spoken.',
+      'Use short sentences. Prefer clear words over clever words.',
+      'Avoid jargon, buzzwords, dense technical terms, long clauses, and tongue-twister phrases.',
+      'Do not say things like leverage, enable, facilitate, optimize, paradigm, robust, seamless, architecture, pipeline, interface, infrastructure, orchestration, or stakeholders unless the presenter already said that exact word.',
       'Use the presentation goal and recent transcript. Stay specific to the speaker topic.',
       'If the presenter went off script, follow the latest spoken topic instead of forcing the old script.',
-      'Write in English only. Return one short paragraph first. No bullets and no label before the paragraph.',
+      'Write in English only. Return one short spoken paragraph first, about 2-4 short sentences. No bullets and no label before the paragraph.',
       'After the paragraph, include a newline, the exact marker ---VISUAL_CUES_JSON---, then strict JSON for 1-2 lightweight visual cues.',
-      'The visual cues should target a glyph-particle scene, not an image. Keep them compact.',
-      'JSON shape: [{"phrase":"living teleprompter","prompt":"glyph particles form a responsive stage","sceneType":"glyph-scene","targetTiming":{"paragraphIndex":0,"phraseMatch":"living teleprompter","wordIndex":3}}]',
+      'The visual cues should target a glyph-particle scene, not an image. Keep cue words simple too.',
+      'JSON shape: [{"phrase":"living demo","prompt":"bright glyphs form a live stage","sceneType":"glyph-scene","targetTiming":{"paragraphIndex":0,"phraseMatch":"living demo","wordIndex":2}}]',
       '',
       `Presentation goal:\n${presentationBriefRef.current || '(no explicit brief)'}`,
       '',
-      `Recent finalized speaker transcript:\n${recentContext}`,
+      `User topic drift to weave in without losing the original goal:\n${topicDrift.length ? topicDrift.join('\n') : '(none yet)'}`,
       '',
-      `Accepted/read generated scripts:\n${acceptedScripts.length ? acceptedScripts.join('\n') : '(none yet)'}`,
+      `Current finalized speaker speech:\n${currentFinalizedSpeech}`,
       '',
-      `Skipped or superseded scripts:\n${skippedScripts.length ? skippedScripts.join('\n') : '(none yet)'}`,
+      `Recent chronological context:\n${recentContext}`,
+      '',
+      `Already said by generated script. Do not repeat these ideas:\n${acceptedScripts.length ? acceptedScripts.join('\n') : '(none yet)'}`,
+      '',
+      `Rejected or skipped directions. Avoid repeating these too:\n${skippedScripts.length ? skippedScripts.join('\n') : '(none yet)'}`,
     ].join('\n')
   }, [])
 
   const requestPlanning = useCallback(
-    (reason: string) => {
+    (reason: string, options: PlanningOptions = {}) => {
       if (planningStateRef.current === 'generating') {
         mark('planning skipped', 'already generating')
         return
@@ -543,6 +678,11 @@ function App() {
         return
       }
 
+      if (!options.retry) {
+        planningRetryCountRef.current = 0
+        lastPlanningReasonRef.current = reason
+      }
+
       planningRawRef.current = ''
       planningStartedAtRef.current = performance.now()
       setPlanningDraft('')
@@ -551,7 +691,10 @@ function App() {
       setPlanningState('generating')
       planningStateRef.current = 'generating'
       setScriptFeedback('idle')
-      mark('llm request started', reason)
+      mark(
+        'llm request started',
+        options.retry ? `${reason} (retry ${planningRetryCountRef.current})` : reason,
+      )
       planningRequestIdRef.current += 1
 
       sendEvent({
@@ -587,7 +730,7 @@ function App() {
       session: {
         type: 'realtime',
         instructions:
-          'You are a silent live presentation planner. Do not speak out loud unless explicitly asked. Always produce English text. Generate concise presenter script quickly.',
+          'You are a silent live demo writer. Do not speak out loud unless explicitly asked. Always produce English text. Write casual, fun presenter script with very simple words, short sentences, and no jargon. Make every line easy to pronounce live.',
         audio: {
           input: {
             transcription: {
@@ -609,8 +752,45 @@ function App() {
     mark('session.update sent')
   }, [mark, sendEvent])
 
+  const cleanupPlanningResponse = useCallback((responseId: string) => {
+    if (!responseId) return
+
+    responsePurposesRef.current.delete(responseId)
+    responseRequestIdsRef.current.delete(responseId)
+  }, [])
+
+  const failOrRetryPlanning = useCallback(
+    (message: string) => {
+      if (planningRetryCountRef.current < maxPlanningRetries) {
+        planningRetryCountRef.current += 1
+        planningStateRef.current = 'idle'
+        setPlanningState('idle')
+        setPlanningDraft('')
+        planningRawRef.current = ''
+        mark('generation retrying', message)
+        requestPlanning(lastPlanningReasonRef.current || 'retry', { retry: true })
+        return
+      }
+
+      setPlanningState('failed')
+      planningStateRef.current = 'failed'
+      setPlanningDraft('')
+      setLastError(message)
+      mark('generation failed', message)
+    },
+    [mark, requestPlanning],
+  )
+
   const handlePlanningDelta = useCallback(
     (event: ServerEvent) => {
+      const responseId = eventResponseId(event)
+      const responseRequestId = responseRequestIdsRef.current.get(responseId)
+
+      if (responseRequestId && responseRequestId !== planningRequestIdRef.current) {
+        mark('stale planning delta ignored', `request ${responseRequestId}`)
+        return
+      }
+
       const delta = event.delta || ''
       const hadText = Boolean(splitPlanningResponse(planningRawRef.current).paragraph)
 
@@ -643,6 +823,7 @@ function App() {
 
       if (responseRequestId && responseRequestId !== planningRequestIdRef.current) {
         mark('stale planning ignored', `request ${responseRequestId}`)
+        cleanupPlanningResponse(responseId)
         return
       }
 
@@ -652,10 +833,10 @@ function App() {
       const visualCues = parseVisualCues(split.visualCueText)
 
       if (!paragraph || !isProbablyEnglish(paragraph)) {
-        setPlanningState('failed')
-        planningStateRef.current = 'failed'
-        setLastError('Planning response finished without usable English paragraph text.')
-        mark('generation failed', 'empty paragraph')
+        cleanupPlanningResponse(responseId)
+        failOrRetryPlanning(
+          'Planning response finished without usable English paragraph text.',
+        )
         return
       }
 
@@ -683,8 +864,11 @@ function App() {
       if (visualCues.length) {
         mark('visual cue received', visualCues.map((cue) => cue.phrase).join(', '))
       }
+
+      planningRetryCountRef.current = 0
+      cleanupPlanningResponse(responseId)
     },
-    [mark],
+    [cleanupPlanningResponse, failOrRetryPlanning, mark],
   )
 
   const clearVisibleScript = useCallback(() => {
@@ -700,6 +884,7 @@ function App() {
       if (!currentScript) return
 
       acceptedScriptsRef.current = [...acceptedScriptsRef.current, currentScript].slice(-5)
+      appendFinalizedChunk(currentScript, 'generated')
       hasGeneratedRef.current = false
       planningStateRef.current = 'consumed'
       setPlanningState('consumed')
@@ -715,7 +900,14 @@ function App() {
         autoGenerationTimerRef.current = null
       }, 650)
     },
-    [clearAutoGenerationTimer, clearVisibleScript, mark, requestPlanning, showTemporaryScriptFeedback],
+    [
+      appendFinalizedChunk,
+      clearAutoGenerationTimer,
+      clearVisibleScript,
+      mark,
+      requestPlanning,
+      showTemporaryScriptFeedback,
+    ],
   )
 
   const handleScriptDivergence = useCallback(
@@ -725,6 +917,7 @@ function App() {
       if (!currentScript) return
 
       skippedScriptsRef.current = [...skippedScriptsRef.current, currentScript].slice(-5)
+      topicDriftRef.current = [...topicDriftRef.current, spokenTranscript].slice(-5)
       hasGeneratedRef.current = false
       planningStateRef.current = 'idle'
       setPlanningState('idle')
@@ -872,8 +1065,6 @@ function App() {
         const purpose = responsePurposesRef.current.get(responseId) || eventTopic(event)
 
         if (purpose === 'teleprompter-plan') {
-          responsePurposesRef.current.delete(responseId)
-          responseRequestIdsRef.current.delete(responseId)
           finishPlanning(event)
         }
 
@@ -885,6 +1076,14 @@ function App() {
 
       if (event.type === 'error' || event.error) {
         const message = event.error?.message || event.message || 'Realtime error'
+        const purpose = responsePurposesRef.current.get(responseId) || eventTopic(event)
+
+        if (purpose === 'teleprompter-plan') {
+          cleanupPlanningResponse(responseId)
+          failOrRetryPlanning(message)
+          return
+        }
+
         setConnectionState('error')
         setStatus('Realtime error.')
         setLastError(message)
@@ -893,7 +1092,9 @@ function App() {
     },
     [
       appendFinalizedChunk,
+      cleanupPlanningResponse,
       completeCurrentScript,
+      failOrRetryPlanning,
       finishDisplayExtraction,
       finishPlanning,
       handlePlanningDelta,
@@ -1011,12 +1212,18 @@ function App() {
   }, [requestPlanning, skipCurrentScript])
 
   const clearSession = useCallback(() => {
+    clearDisplayBufferTimer()
     setPartialTranscript('')
     finalizedChunksRef.current = []
     finalizedTextRef.current = ''
+    pendingDisplayTextRef.current = ''
+    pendingDisplayChunkIdRef.current = null
     hasGeneratedRef.current = false
+    planningRetryCountRef.current = 0
+    lastPlanningReasonRef.current = ''
     acceptedScriptsRef.current = []
     skippedScriptsRef.current = []
+    topicDriftRef.current = []
     planningStateRef.current = 'idle'
     planningRawRef.current = ''
     setFinalizedChunks([])
@@ -1027,15 +1234,21 @@ function App() {
     setTimings([])
     setLastError('')
     mark('session cleared')
-  }, [clearVisibleScript, mark])
+  }, [clearDisplayBufferTimer, clearVisibleScript, mark])
 
   useEffect(() => {
     return () => {
       closeRealtimeHandles()
       clearFeedbackTimer()
       clearAutoGenerationTimer()
+      clearDisplayBufferTimer()
     }
-  }, [clearAutoGenerationTimer, clearFeedbackTimer, closeRealtimeHandles])
+  }, [
+    clearAutoGenerationTimer,
+    clearDisplayBufferTimer,
+    clearFeedbackTimer,
+    closeRealtimeHandles,
+  ])
 
   const canGenerate =
     connectionState === 'listening' &&

@@ -499,80 +499,73 @@ Make the core live product loop reliable before investing in visuals: real-time 
 - [ ] Going off script regenerates from the latest spoken context.
 - [ ] Text streaming and display updates continue if script generation is slow or fails.
 
-## Phase 3: LLM Provider Hardening
+## Phase 3: Provider Reliability and Extraction Layer
 
 ### Objective
 
-Harden the real provider path from the MVP and Phase 2: generate useful next paragraphs from live context, keep display extraction fast and English-only, and make provider failures recoverable without blocking the visible teleprompter.
+Harden the real provider path without changing the presenter experience from Phase 2. Phase 2 owns visible script behavior; Phase 3 owns prompt/context boundaries, malformed-output handling, retry behavior, stale-response protection, latency observability, and structured extraction for future visual work.
 
-### 1. Context Manager Extension
+### 1. Compact Provider Context
 
-- [ ] Keep the current finalized sentence.
-- [ ] Keep the last 3-5 finalized sentences.
+- [x] Send the current finalized speech separately from broader context.
+- [x] Keep the last 3-5 finalized chunks in the planning prompt instead of the full transcript.
 - [ ] Support an optional cached session summary only when it already exists.
-- [ ] Use accepted/read generated scripts in future generation prompts.
-- [ ] Keep provider context compact enough for low latency.
+- [x] Use accepted/read generated scripts in future generation prompts.
+- [x] Include skipped/superseded scripts so the model can avoid repeating rejected directions.
+- [x] Keep provider context compact enough for low latency.
 
-### 2. Provider Abstraction
+### 2. Provider Boundary
 
-- [ ] Define a provider interface for streaming generated paragraph text.
+- [ ] Extract Realtime planning/display provider code out of `App.tsx` once behavior stabilizes.
 - [ ] Keep the real provider as the primary implementation.
 - [ ] Keep fixture/mock provider only for local UI development and test determinism.
 - [ ] Keep provider details out of UI components.
-- [ ] Support cancellation or stale-response protection if the presenter clears or skips.
+- [x] Support stale-response protection when newer presenter intent supersedes older generation.
+- [ ] Support explicit cancellation/abort when the presenter clears, skips, or stops the session.
 
-### 3. Streaming LLM Response Shape
+### 3. Structured Response Shape
 
-- [ ] Request paragraph text first.
-- [ ] Enforce English-only generated script output.
-- [ ] Include lightweight structured visual cues or scene intents in the same response.
-- [ ] Avoid a second blocking parser call.
-- [ ] Validate visual cues for later visual work, but do not block text/script behavior on them.
-- [ ] Use phrase match + paragraph index + optional word index for `targetTiming`.
+- [x] Request paragraph text first.
+- [x] Enforce English-only generated script output.
+- [x] Include lightweight structured visual cues or scene intents in the same response.
+- [x] Avoid a second blocking parser call for visual cues.
+- [x] Validate visual cues for later visual work without blocking text/script behavior on them.
+- [x] Use phrase match + paragraph index + optional word index for `targetTiming`.
 
 ### 4. Latency and Failure Behavior
 
-- [ ] Start generation as soon as a sentence finalizes only if the script queue is empty.
+- [x] Start generation only when the script queue is empty or explicitly allowed by Phase 2 controls.
 - [ ] Target first generated text within 1-2 seconds under normal conditions.
 - [ ] Target a usable paragraph within 3-5 seconds under normal conditions.
-- [ ] Retry once automatically on failure.
-- [ ] Use the Phase 1 debug flag for any visible generation delay state.
-- [ ] Keep teleprompter streaming current text during provider delay or failure.
-- [ ] Let presenter manually regenerate from controls.
+- [x] Retry once automatically when planning finishes without usable English paragraph text.
+- [x] Keep visible teleprompter text streaming during provider delay or failure.
+- [x] Let presenter manually regenerate from controls.
+- [ ] Record provider latency metrics separately from UI/debug event logs.
+- [ ] Surface actual provider usage fields when available so token/cost tracking can use real numbers.
 
-### 5. Script Queue
+### 5. Provider Output Guardrails
 
-- [ ] Add a generated paragraph queue with explicit states:
-  - [ ] `idle`: no queued script; finalized context may trigger generation.
-  - [ ] `generating`: a script is in flight; ignore new generation triggers.
-  - [ ] `ready`: script is visible and immutable; ignore new generation triggers.
-  - [ ] `reading`: presenter appears to be reading or has started reading; ignore new generation triggers.
-  - [ ] `consumed`: script is done; append/mark context and return to `idle`.
-- [ ] Show the next paragraph in the shared script panel.
-- [ ] Freeze generated paragraph text once visible; never replace it because new speech arrived.
-- [ ] Allow the next generation only from an explicit `Generate next` / `Done reading` action or a successful last-two-words speech match.
-- [ ] When speech matches the last two words, show a visible success state such as a brief green highlight.
-- [ ] If the presenter diverges from or ignores the generated script, treat that as skip/topic-change intent and regenerate from the latest spoken context.
-- [ ] Support explicit skip and regenerate.
-- [ ] Add a manual done-reading/generate-next control before relying on automatic speech matching.
-- [ ] In typed MVP mode, allow generated paragraphs to become context through the explicit accept/advance or done-reading control.
-- [ ] In voice mode, eventually allow generated paragraphs to become context through speech matching after the presenter reads them.
-- [ ] Treat sophisticated speech matching as an enhancement, but require simple last-two-words matching for the POC/MVP handoff.
-- [ ] Prevent stale generated paragraphs from overwriting newer presenter intent.
+- [x] Reject malformed or non-English display extraction and keep local fallback display text.
+- [x] Reject malformed or non-English generated script output.
+- [x] Ignore stale planning deltas and stale completed planning responses.
+- [x] Keep display extraction scoped to the latest promoted speech chunk.
+- [ ] Add stricter schema validation for visual cues before Phase 5 consumes them.
+- [ ] Add one retry for recoverable provider error events, not only malformed planning completion.
 
 ### Outputs
 
-- Real LLM generation loop with fixture fallback for development.
-- Generated paragraph queue.
-- Structured cue extraction from the same provider response.
-- Recovery behavior for slow, malformed, or failed provider responses.
+- Compact provider prompt/context payload.
+- Provider output guardrails for generated script, display extraction, and visual cues.
+- Automatic retry for recoverable planning failures.
+- Stale-response protection for streamed and completed planning responses.
 
 ### Validation
 
-- [ ] One finalized sentence produces a generated paragraph.
+- [ ] One finalized sentence still produces a generated paragraph.
 - [ ] The paragraph appears before the presenter needs it in normal conditions.
-- [ ] LLM failure does not stall the visible teleprompter.
+- [ ] Provider delay or failure does not stall the visible teleprompter.
 - [ ] Provider output is rejected or retried when it is malformed or non-English.
+- [ ] Stale provider output cannot overwrite newer presenter intent.
 
 ## Phase 4: Voice-to-Action Integration
 
@@ -619,7 +612,15 @@ Productionize the Realtime speech path proven in Phase 0.5 and combine text stre
 - [ ] Regenerate from latest context when the presenter intentionally goes off script.
 - [ ] Avoid replacing the visible script while the presenter is likely still reading it.
 
-### 5. Failure and Recovery
+### 5. Topic Drift Memory Enhancement
+
+- [ ] When the presenter goes off script, extract the new topic or direction from finalized speech.
+- [ ] Append the new topic as a session-level addendum to the initial presentation brief instead of replacing the original brief.
+- [ ] Include both the original brief and topic-drift addendum in future script-generation prompts.
+- [ ] Let the LLM decide whether to steer fully into the new topic or gently connect it back to the original presentation.
+- [ ] Keep the addendum compact so it improves relevance without bloating the low-latency context payload.
+
+### 6. Failure and Recovery
 
 - [ ] If speech recognition fails, keep typed input available.
 - [ ] If LLM generation fails, continue displaying live speech and allow regenerate.

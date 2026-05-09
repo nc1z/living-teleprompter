@@ -1,0 +1,54 @@
+PRESENTATION BRIEF — paste this into the setup field before starting the mic.
+
+---
+
+I am demoing Living Teleprompter: a tool that turns improvised speech into a polished live presentation with no slides and no preparation. The audience sees a clean, minimal display that updates as I speak. I see a generated next script in my presenter panel so I always know what to say.
+
+The demo should feel cinematic and playful. Generate short paragraphs I can say in 15–20 seconds each. Cue glyph visuals that match what I am describing: a dragon made of glyphs gliding through the words when I mention something powerful, a forest when I mention nature or growth, rain or lightning when I build tension, fireflies drifting during a pause, an AI presence assembling the next scene while I talk. When I describe a product or reveal, make the display feel like a launch moment.
+
+Tone: confident, warm, a little theatrical. Easy to read aloud. No marketing fluff. If I go off script or change topics, follow me — turn the detour into part of the demo instead of forcing me back.
+
+---
+
+DEMO FLOW GUIDE — for the presenter, not the LLM.
+
+Use this as a loose script for the live demo. Speak naturally. The timings and actions are cues, not exact lines.
+
+[0:00 — OPEN]
+Speak freely to open. Something like:
+  "Alright. I haven't prepared anything. No slides, no script, no idea what I'm going to say. Let's go."
+Then describe what Living Teleprompter is in one sentence. Watch the display extract a clean phrase from your speech.
+
+[0:20 — FOLLOW THE SCRIPT]
+When the generated next script appears in your panel, read it aloud. This shows the happy path:
+  — Speech finalizes
+  — Script generates
+  — You read it
+  — System detects you reached the end and generates the next one automatically
+
+Point this out to the audience: "I just read what the AI wrote and it already has the next line ready."
+
+[0:45 — GO OFF SCRIPT]
+Mid-paragraph, stop reading the generated script and say something completely different. For example:
+  "Actually — I want to talk about something else for a second. What if this worked for job interviews?"
+Watch the system detect divergence from the generated script and regenerate from your new context. Show the panel changing.
+
+[1:10 — PAUSE DRAMATICALLY]
+Stop speaking for 3–5 seconds. Let the audience see the display hold its last phrase and the glyph scene settle. Then continue. This shows the display does not flash back to "listening" — it holds the last stable output.
+
+[1:20 — CUE A VISUAL MOMENT]
+Say something that should trigger a big visual: a dragon, a forest, a storm. Something like:
+  "And then, right as I say the word dragon — there it is."
+Watch the glyph creature emerge on screen.
+
+[1:40 — PRODUCT REVEAL (optional)]
+Describe a fictional product in one sentence — an app, a drink, a device. The system should pick it up and turn the display into a reveal moment. Example:
+  "Imagine launching a product called Arc — a drink that gives you the energy of a full night's sleep in three seconds."
+
+[2:00 — CLOSE]
+End by describing what just happened:
+  "I didn't prepare any of that. The model wrote my next lines, the visuals synced to my speech, and the display stayed clean the whole time. That's Living Teleprompter."
+
+---
+
+END OF BRIEF

@@ -106,6 +106,7 @@ const hiddenControlsReferenceLayoutVariants: ReferenceLayoutVariant[] = [
 ]
 const defaultAudienceText = 'The Presentation'
 const maxPlanningRetries = 1
+const displaySettleMs = 1600
 const storyBeatIdeas = [
   'continue from the speaker topic with one specific next point',
   'add a concrete example connected to the speaker topic',
@@ -172,6 +173,53 @@ const stopWords = new Set([
   'we',
   'while',
   'with',
+])
+const displayDanglingWords = new Set([
+  'a',
+  'an',
+  'the',
+  'to',
+  'for',
+  'of',
+  'with',
+  'about',
+  'because',
+  'if',
+  'that',
+  'then',
+  'when',
+  'where',
+  'which',
+  'why',
+  'who',
+  'am',
+  'are',
+  'be',
+  'been',
+  'being',
+  'did',
+  'do',
+  'does',
+  'had',
+  'has',
+  'have',
+  'is',
+  'was',
+  'were',
+  'i',
+  'my',
+  'we',
+  'you',
+  'they',
+  'he',
+  'she',
+  'it',
+  'like',
+  'love',
+  'need',
+  'needs',
+  'want',
+  'wants',
 ])
 
 function eventResponseId(event: ServerEvent) {
@@ -301,7 +349,24 @@ function sceneFromQuery() {
   }
 }
 
-function shouldPromoteToDisplay(value: string) {
+function hasSentenceEnd(value: string) {
+  return /[.!?]\s*$/.test(normalizeSpaces(value))
+}
+
+function chunkTimestamp(chunkId?: string) {
+  const match = chunkId?.match(/-(\d+)$/)
+  const timestamp = match ? Number(match[1]) : 0
+
+  return Number.isFinite(timestamp) ? timestamp : 0
+}
+
+function endsWithDanglingDisplayWord(value: string) {
+  const lastWord = normalizeSpaces(value).split(' ').map(normalizeDisplayWord).filter(Boolean).at(-1)
+
+  return Boolean(lastWord && displayDanglingWords.has(lastWord))
+}
+
+function shouldPromoteToDisplay(value: string, settled = false) {
   const text = normalizeSpaces(value)
   const normalizedWords = text.split(' ').map(normalizeDisplayWord).filter(Boolean)
   const meaningful = normalizedWords.filter(
@@ -309,9 +374,11 @@ function shouldPromoteToDisplay(value: string) {
   )
 
   if (!text) return false
-  if (normalizedWords.length <= 2 && meaningful.length < 2) return false
-  if (text.length < 14 && meaningful.length < 2) return false
   if (meaningful.length === 0) return false
+  if (normalizedWords.length <= 2 && meaningful.length < 2) return false
+  if (settled && text.length < 8 && meaningful.length < 2) return false
+  if (endsWithDanglingDisplayWord(text)) return false
+  if (!settled && !hasSentenceEnd(text)) return false
 
   return true
 }
@@ -396,7 +463,8 @@ function isPresenterScript(value: string) {
 }
 
 function createLocalDisplay(text: string, sourceChunkId?: string): AudienceDisplay {
-  const words = normalizeSpaces(text)
+  const normalizedText = normalizeSpaces(text)
+  const words = normalizedText
     .split(' ')
     .map((word) => word.replace(/^["'([{]+|[)"'\]},.!?:;]+$/g, ''))
     .filter(Boolean)
@@ -410,42 +478,70 @@ function createLocalDisplay(text: string, sourceChunkId?: string): AudienceDispl
     }
   }
 
-  let bestIndex = 0
-  let bestScore = -1
+  const phrase = sanitizeDisplayPhrase(normalizedText)
+  const phraseWords = phrase.split(' ').filter(Boolean)
+  const emphasis =
+    [...phraseWords]
+      .reverse()
+      .find((word) => {
+        const normalized = normalizeDisplayWord(word)
 
-  words.forEach((word, index) => {
-    const normalized = normalizeDisplayWord(word)
-    const score =
-      normalized.length +
-      (stopWords.has(normalized) ? -8 : 0) +
-      (index === 0 ? -1 : 0) +
-      (/demo|teleprompter|product|visual|stage|speech|voice|scene|energy|drink/.test(normalized)
-        ? 8
-        : 0)
-
-    if (score > bestScore) {
-      bestIndex = index
-      bestScore = score
-    }
-  })
-
-  const start = Math.max(0, bestIndex - 2)
-  const end = Math.min(words.length, start + 5)
-  const phrase = words.slice(Math.max(0, end - 5), end).join(' ')
-  const emphasis = words[bestIndex]
+        return normalized.length > 2 && !stopWords.has(normalized)
+      }) || phraseWords.at(-1) || words[0]
 
   return {
-    text: phrase || words.slice(0, 5).join(' '),
+    text: phrase || words.join(' '),
     emphasis: emphasis ? [emphasis] : [],
     tone: 'green',
     sourceChunkId,
   }
 }
 
-function parseDisplayResponse(raw: string, fallbackText: string, sourceChunkId?: string) {
+function cleanDisplayPhrase(value: string) {
+  return normalizeSpaces(value)
+    .split(' ')
+    .map((word) => word.replace(/^["'([{]+|[)"'\]},.!?:;]+$/g, ''))
+    .filter(Boolean)
+    .join(' ')
+}
+
+function sanitizeDisplayPhrase(value: string) {
+  const words = cleanDisplayPhrase(value).split(' ').filter(Boolean)
+
+  while (words.length > 1 && displayDanglingWords.has(normalizeDisplayWord(words.at(-1) || ''))) {
+    words.pop()
+  }
+
+  return words.join(' ')
+}
+
+function displayLooksComplete(value: string) {
+  const text = normalizeSpaces(value)
+  const words = text.split(' ').filter(Boolean)
+  const normalizedWords = words.map(normalizeDisplayWord).filter(Boolean)
+  const meaningful = normalizedWords.filter(
+    (word) => word.length > 2 && !stopWords.has(word) && !fillerWords.has(word),
+  )
+  const lastWord = normalizedWords.at(-1) || ''
+  const hasRepeatedTail =
+    normalizedWords.length >= 2 &&
+    normalizedWords.at(-1) === normalizedWords.at(-2) &&
+    !stopWords.has(lastWord)
+
+  if (!text || !isProbablyEnglish(text)) return false
+  if (/[,:;]\s*$/.test(text)) return false
+  if (displayDanglingWords.has(lastWord)) return false
+  if (hasRepeatedTail) return false
+  if (words.length === 1) return meaningful.length === 1
+  if (text.length < 8 && meaningful.length < 2) return false
+
+  return meaningful.length >= 1
+}
+
+function parseDisplayResponse(raw: string, sourceChunkId?: string) {
   try {
     const parsed = JSON.parse(stripJsonFence(raw))
-    const display = normalizeSpaces(String(parsed.display || ''))
+    const display = cleanDisplayPhrase(String(parsed.display || ''))
     const emphasis = Array.isArray(parsed.emphasis)
       ? parsed.emphasis.map((item: unknown) => String(item)).filter(Boolean).slice(0, 2)
       : []
@@ -453,18 +549,18 @@ function parseDisplayResponse(raw: string, fallbackText: string, sourceChunkId?:
       ? (parsed.color as DisplayTone)
       : 'green'
 
-    if (!isProbablyEnglish(display)) {
-      return createLocalDisplay(fallbackText, sourceChunkId)
+    if (parsed.complete === false || !displayLooksComplete(display)) {
+      return null
     }
 
     return {
-      text: display.split(' ').slice(0, 6).join(' '),
+      text: display,
       emphasis: emphasis.length ? emphasis : [display.split(' ').at(-1) || display],
       tone,
       sourceChunkId,
     }
   } catch {
-    return createLocalDisplay(fallbackText, sourceChunkId)
+    return null
   }
 }
 
@@ -717,7 +813,11 @@ function App() {
                     'Create a slide-like audience display from finalized speech.',
                     'Use quick reasoning silently. Return English only.',
                     'If the transcript contains non-English words, translate the meaning to simple English before creating the display.',
-                    'Return strict JSON only: {"display":"2-6 word phrase","emphasis":["one meaningful word"],"color":"green|blue|red|gold"}.',
+                    'Return strict JSON only: {"display":"complete word, phrase, or short sentence","emphasis":["one meaningful word"],"color":"green|blue|red|gold","complete":true}.',
+                    'The display must make sense on its own. It can be one strong word, a phrase, or a short sentence.',
+                    'Never return a raw middle fragment, clipped sentence, keyword soup, or text ending in a dangling word like a, the, to, for, why, want, is, or about.',
+                    'Use normal English grammar. Bad: "book want cat" or "horse horse want". Good: "why I want a cat" or "a book about wanting a cat".',
+                    'For "The book is about 10 reasons why I want a cat", good displays include "10 reasons why I want a cat", "why I want a cat", or "a book about wanting a cat". Never return "10 reasons why I want a".',
                     'Choose the emphasized word by meaning, not by position.',
                     'Never copy non-English transcript fragments. Do not output any non-English characters or words.',
                     '',
@@ -756,9 +856,15 @@ function App() {
         return
       }
 
-      setAudienceDisplay(createLocalDisplay(normalized, chunkId))
+      const optimisticDisplay = createLocalDisplay(normalized, chunkId)
+
+      if (displayLooksComplete(optimisticDisplay.text)) {
+        setAudienceDisplay(optimisticDisplay)
+        mark('display updated from speech', optimisticDisplay.text)
+      }
+
       requestDisplayExtraction(normalized, chunkId)
-      mark('display promoted', normalized)
+      mark('display extraction queued', normalized)
     },
     [mark, requestDisplayExtraction],
   )
@@ -785,12 +891,26 @@ function App() {
       mark('display buffered', candidate)
 
       displayBufferTimerRef.current = window.setTimeout(() => {
-        const dropped = pendingDisplayTextRef.current
+        const settledCandidate = pendingDisplayTextRef.current
+        const settledChunkId = pendingDisplayChunkIdRef.current || chunkId
+
+        if (endsWithDanglingDisplayWord(settledCandidate)) {
+          displayBufferTimerRef.current = null
+          mark('display buffer waiting for completion', settledCandidate)
+          return
+        }
+
         pendingDisplayTextRef.current = ''
         pendingDisplayChunkIdRef.current = null
         displayBufferTimerRef.current = null
-        mark('display buffer dropped', dropped)
-      }, 2800)
+
+        if (shouldPromoteToDisplay(settledCandidate, true)) {
+          promoteDisplayCandidate(settledCandidate, settledChunkId)
+          return
+        }
+
+        mark('display buffer dropped', settledCandidate)
+      }, displaySettleMs)
     },
     [clearDisplayBufferTimer, mark, promoteDisplayCandidate],
   )
@@ -1306,10 +1426,21 @@ function App() {
       responseFallbackTextRef.current.delete(responseId)
       displayExtractionRawRef.current.delete(responseId)
 
-      if (!chunkId || audienceDisplayRef.current.sourceChunkId !== chunkId) return
+      if (!chunkId) return
+      if (chunkTimestamp(chunkId) < chunkTimestamp(audienceDisplayRef.current.sourceChunkId)) {
+        mark('display extraction older than current', chunkId)
+        return
+      }
 
-      setAudienceDisplay(parseDisplayResponse(raw, fallbackText, chunkId))
-      mark('display extraction received', chunkId)
+      const display = parseDisplayResponse(raw, chunkId)
+
+      if (display) {
+        setAudienceDisplay(display)
+        mark('display extraction received', chunkId)
+        return
+      }
+
+      mark('display extraction rejected', fallbackText || chunkId)
     },
     [mark],
   )
@@ -1449,6 +1580,30 @@ function App() {
         if (purpose === 'teleprompter-plan') {
           cleanupPlanningResponse(responseId)
           failOrRetryPlanning(message)
+          return
+        }
+
+        if (purpose === 'display-extract') {
+          const chunkId = responseChunkIdsRef.current.get(responseId)
+          const fallbackText = responseFallbackTextRef.current.get(responseId) || ''
+          const fallbackDisplay = fallbackText ? createLocalDisplay(fallbackText, chunkId) : null
+
+          responsePurposesRef.current.delete(responseId)
+          responseChunkIdsRef.current.delete(responseId)
+          responseFallbackTextRef.current.delete(responseId)
+          displayExtractionRawRef.current.delete(responseId)
+
+          if (
+            chunkId &&
+            chunkTimestamp(chunkId) >= chunkTimestamp(audienceDisplayRef.current.sourceChunkId) &&
+            fallbackDisplay &&
+            displayLooksComplete(fallbackDisplay.text)
+          ) {
+            setAudienceDisplay(fallbackDisplay)
+            mark('display extraction error fallback', message)
+          } else {
+            mark('display extraction error kept previous', message)
+          }
           return
         }
 

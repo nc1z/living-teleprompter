@@ -13,7 +13,7 @@
 - Build the text loop around the real-time path. The presenter must be able to speak and immediately see readable, focused words while the LLM plans ahead.
 - Use OpenAI Realtime API or the realtime Agents SDK for live voice-to-action runtime. Codex is for building the app and prototyping offline tooling, not for the live speech loop.
 - Keep Phase 1 DOM-first. PretextJS, canvas physics, and HTML-in-Canvas are later rendering layers, not MVP blockers.
-- Keep the presenter and audience surfaces separable. The MVP can use one shared page, but generated script and controls should live in an overlay that can later become a private presenter view.
+- Keep the shared page as the default product surface. The generated next script can stay in the same UI as the visible teleprompter experience; separate presenter/audience views and hiding the script are optional post-MVP enhancements.
 - Optimize the LLM path for speed. Use one streaming generation call that returns paragraph text first and lightweight visual cues in the same response.
 - Start glyph scene config generation or local scene retargeting as early as possible once a usable paragraph or cue exists.
 - Keep deterministic fixtures for development and visual testing only. They are not a substitute for the real LLM feasibility test.
@@ -87,7 +87,7 @@ These lessons came from testing the `poc/` Realtime spike and should override ol
 ### Frontend Runtime Architecture
 
 - The productized frontend should use React for the app shell, not for the animation loop.
-- React owns application state and UI composition: setup prompt, microphone controls, Realtime connection status, generated script queue, stable audience display, debug/cost panels, and future presenter/audience separation.
+- React owns application state and UI composition: setup prompt, microphone controls, Realtime connection status, generated script queue, stable audience display, debug/cost panels, and optional future presenter/audience separation.
 - The canvas glyph engine owns the hot path: `requestAnimationFrame`, particles, velocities, glyph homes, force fields, retargeting, resize handling, and drawing.
 - Realtime API owns live intelligence events: transcription, next-script generation, display extraction, voice-to-action events, and compact glyph scene config generation.
 - React should pass stable config and signal changes into the engine through refs/effects. Do not keep per-frame particle state in React.
@@ -315,7 +315,7 @@ Live validation requires running the MVP server with `OPENAI_API_KEY` and testin
 
 ### Objective
 
-Turn the successful Realtime feasibility spike into the single-page, no-scroll teleprompter experience with stable slide-like audience text, a live transcript footer, and a hideable presenter overlay.
+Turn the successful Realtime feasibility spike into the single-page, no-scroll teleprompter experience with stable slide-like audience text, a live transcript footer, and the generated next script in the same shared UI.
 
 ### 1. Page Shell and Layout
 
@@ -340,7 +340,7 @@ Turn the successful Realtime feasibility spike into the single-page, no-scroll t
 - [x] Add a local-only manual input mode for typing a sentence.
 - [x] Add a deterministic demo stream that emits words or tokens over time.
 - [x] Support starting, pausing, resuming, and clearing the demo stream.
-- [x] Keep input controls outside the main audience text area, preferably in the presenter overlay.
+- [x] Keep input controls outside the main audience text area in the shared controls panel.
 - [x] Keep manual input as a development fallback; real speech remains the product-critical path.
 
 ### 4. Teleprompter Renderer
@@ -357,10 +357,10 @@ Turn the successful Realtime feasibility spike into the single-page, no-scroll t
 - [x] Avoid layout shifts as partial transcript arrives.
 - [x] Add reduced-motion-safe transitions.
 
-### 5. Presenter Overlay
+### 5. Shared Script and Controls Panel
 
-- [x] Add a subtle overlay or panel for presenter-only information.
-- [x] Show queued generated script separately from the main teleprompter words.
+- [x] Add a subtle panel for controls and generated script inside the shared UI.
+- [x] Show queued generated script in the same UI while keeping it visually distinct from the main teleprompter words.
 - [x] Make the generated next script panel large enough to read comfortably during live testing.
 - [x] Add controls:
   - [x] Pause/resume live streaming.
@@ -369,7 +369,7 @@ Turn the successful Realtime feasibility spike into the single-page, no-scroll t
   - [x] Done reading / generate next.
   - [x] Accept/advance the current generated paragraph in typed MVP mode.
   - [x] Clear session.
-  - [x] Toggle overlay visibility.
+  - [x] Keep controls available in the shared UI.
 - [x] Use compact icon controls for start/stop microphone where possible.
 - [x] Add a feature/debug flag for showing generation delay state.
 - [x] When the debug flag is enabled, show a bouncing `...` while generation is pending.
@@ -378,7 +378,7 @@ Turn the successful Realtime feasibility spike into the single-page, no-scroll t
 
 - A usable no-scroll teleprompter page.
 - Real transcription streaming display with manual streaming fallback.
-- Presenter overlay with basic controls.
+- Shared controls and generated-script panel.
 
 ### Validation
 
@@ -388,7 +388,7 @@ Turn the successful Realtime feasibility spike into the single-page, no-scroll t
 - [x] Important words can be emphasized individually.
 - [x] The main display does not use grey trailing transcript text.
 - [x] The page does not scroll.
-- [x] The presenter overlay can be hidden without disrupting the main display.
+- [x] The controls panel can coexist without disrupting the main display.
 - [x] App can still run in fixture mode for UI development without voice or LLM services.
 
 ## MVP Slice: Real Speech + Real LLM + Phase 1 UI
@@ -402,7 +402,7 @@ Prove the core product loop with real services: spoken context enters the telepr
 - [ ] Keep a fixture provider for local UI testing only.
 - [ ] Use the Phase 1 finalized chunk array as the MVP context source.
 - [ ] Trigger real paragraph generation when a stable phrase or sentence finalizes and the script queue is empty.
-- [ ] Stream generated paragraph text into the presenter overlay first, then freeze that text as the current next script.
+- [ ] Stream generated paragraph text into the shared script panel first, then freeze that text as the current next script.
 - [ ] Allow generated text to be injected into the main teleprompter stream for demos.
 - [ ] Use the accept/advance control to mark a generated paragraph as presenter-approved in typed MVP mode.
 - [ ] Use the done-reading/generate-next control to clear the current script and allow the next generation.
@@ -420,7 +420,7 @@ Prove the core product loop with real services: spoken context enters the telepr
 
 - [ ] Given one spoken sentence, a real generated next paragraph appears.
 - [ ] The generated next paragraph remains stable while visible.
-- [ ] Generated text is visually separate from the audience-facing current words.
+- [ ] Generated text appears in the same UI but remains visually distinct from the audience-facing current words.
 - [ ] Provider failure path retries once and then allows manual regenerate.
 - [ ] No background process blocks text streaming.
 
@@ -552,7 +552,7 @@ Harden the real provider path from the MVP: generate the next paragraph and stru
   - [ ] `ready`: script is visible and immutable; ignore new generation triggers.
   - [ ] `reading`: presenter appears to be reading or has started reading; ignore new generation triggers.
   - [ ] `consumed`: script is done; append/mark context and return to `idle`.
-- [ ] Show the next paragraph in the presenter overlay.
+- [ ] Show the next paragraph in the shared script panel.
 - [ ] Freeze generated paragraph text once visible; never replace it because new speech arrived.
 - [ ] Allow the next generation only from an explicit `Generate next` / `Done reading` action or a successful last-two-words speech match.
 - [ ] When speech matches the last two words, show a visible success state such as a brief green highlight.
@@ -606,10 +606,10 @@ Productionize the Realtime speech path proven in Phase 0.5 and combine text stre
 
 ### 3. Generated Script Delivery
 
-- [ ] Queue generated next paragraph for presenter reading.
+- [ ] Queue generated next paragraph for presenter reading in the same shared UI.
 - [ ] Accept `queue_next_paragraph`-style tool/function calls or equivalent structured outputs.
 - [ ] Keep the queued generated script immutable until the presenter skips it, regenerates intentionally, or marks it done.
-- [ ] Keep generated script out of the main audience text until spoken or explicitly injected.
+- [ ] Keep generated script in the shared script panel, distinct from the main large teleprompter text, until spoken or explicitly injected.
 - [ ] Support presenter skip/regenerate during live speech as explicit actions only.
 - [ ] Support manual done-reading/generate-next before automatic speech matching is trusted.
 - [ ] Enforce English-only generated script output.
@@ -682,23 +682,25 @@ Layer richer PretextJS and experimental HTML-in-Canvas interactions onto the Pha
 - [ ] Advanced effects do not reduce text readability.
 - [ ] Experimental HTML-in-Canvas mode degrades cleanly when unsupported.
 
-## Presenter and Audience View Split
+## Optional Post-MVP: Presenter and Audience View Split
 
 ### Objective
 
-Evolve the MVP shared page into separate presenter and audience rendering targets.
+Optionally evolve the MVP shared page into separate presenter and audience rendering targets.
 
-This can happen in parallel with the Rendering Enhancements track after the MVP is stable. It does not depend on PretextJS, canvas effects, or HTML-in-Canvas.
+This is intentionally deprioritized. The product can keep the teleprompted next script in the same shared UI. Only revisit this after the live speech, script generation, glyph scene runtime, and voice-to-action loop feel useful.
 
 ### Subtasks
 
 - [ ] Extract shared presentation state from view components.
 - [ ] Define audience view as polished text and visuals only.
 - [ ] Define presenter view as live text, generated script, status, and controls.
-- [ ] Move the MVP presenter overlay into the presenter view.
+- [ ] If separate views become necessary, move the shared controls/script panel into the presenter view.
 - [ ] Add a simple route or session mode switch for presenter vs audience.
 - [ ] Decide how state sync works between views.
 - [ ] Keep shared-view mode available for local demos.
+- [ ] Preserve the current shared UI as the default mode unless a real demo need proves separate views are necessary.
+- [ ] Optionally hide the generated script and controls for audience-only mode.
 
 ### Validation
 
@@ -738,7 +740,7 @@ Cached input pricing should be leveraged aggressively since the rolling context 
 - [ ] In Phase 4, estimate audio input tokens from speech duration using the provider's token-per-second ratio.
 - [ ] Track cached vs uncached input tokens when the provider reports cache status.
 - [ ] Maintain a running session total: input tokens, output tokens, audio tokens, estimated cost.
-- [ ] Show the session total in the presenter overlay when the debug flag is enabled.
+- [ ] Show the session total in the shared debug panel when the debug flag is enabled.
 - [ ] Log per-call token estimates to the browser console in debug mode.
 - [ ] Use a simple character-to-token heuristic (e.g., chars / 4) unless the provider returns actual token counts.
 
@@ -755,12 +757,12 @@ Cached input pricing should be leveraged aggressively since the rolling context 
 1. Phase 0 minimal project bootstrap.
 2. Phase 0.5 Realtime LLM feasibility spike with real speech and real generation, refined from spike learnings.
 3. Phase 1 DOM teleprompter using the real transcription stream, with manual fixture fallback.
-4. MVP slice with real speech, real LLM generation, presenter overlay, and latency logging.
+4. MVP slice with real speech, real LLM generation, shared script panel, and latency logging.
 5. Phase 2 glyph scene runtime and local scene config interface.
 6. Phase 3 provider hardening, script queue, stale-response handling, scene preloading, and failure recovery.
 7. Rendering enhancements with PretextJS and optional HTML-in-Canvas.
-8. Separate presenter and audience views. This can run in parallel with rendering enhancements once MVP state boundaries are clear.
-9. Persistence beyond in-memory state, only after MVP usage shows what needs to be retained.
+8. Persistence beyond in-memory state, only after MVP usage shows what needs to be retained.
+9. Optional separate presenter/audience views, only after the shared UI proves insufficient.
 
 ## First Milestone
 
